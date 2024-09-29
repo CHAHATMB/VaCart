@@ -1,5 +1,4 @@
-# Project Title
-VaCart
+# VaCart
 
 ## About The App
 This app is for displaying the available vacant seats in Train after the Chart gets prepared.
