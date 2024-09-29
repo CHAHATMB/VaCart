@@ -16,4 +16,8 @@ data class TrainComposition(
     val trainName: String,
     val trainNo: String,
     val trainStartDate: String
-)
+){
+    constructor(cdd: List<Cdd>): this("", cdd,"",
+        ChartStatusResponseDto(1,1,1,"", "",""),
+        "","","","","","","","","","","")
+}

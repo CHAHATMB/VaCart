@@ -27,4 +27,8 @@ data class HomeState(
     var isAscending: Boolean = true,
     var lastSortedColumn: String = "",
     var selectedCoach: String = ""
-)
+){
+    constructor(trainComposition: TrainComposition) : this(emptyList()) {
+        this.trainComposition = trainComposition
+    }
+}

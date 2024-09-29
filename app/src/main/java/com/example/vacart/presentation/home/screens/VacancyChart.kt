@@ -6,13 +6,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyHorizontalGrid
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.MaterialTheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.primarySurface
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,25 +25,54 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.HorizontalAlignmentLine
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
+import com.example.vacart.model.Cdd
+import com.example.vacart.model.ChartStatusResponseDto
 import com.example.vacart.model.TrainComposition
 import com.example.vacart.navigation.Routes
 import com.example.vacart.presentation.home.HomeEvent
 import com.example.vacart.presentation.home.HomeState
 import com.example.vacart.presentation.home.HomeViewModel
+import com.example.vacart.ui.theme.VaCartTheme
 
 
 @Preview(showBackground = true)
 @Composable
 fun PreviewTrainDetailsScreen() {
-    val navController = rememberNavController()
-    val homeViewModel: HomeViewModel = hiltViewModel()
-    VacancyChart(navController = navController, homeViewModel)
-}
+//    VaCartTheme {
+        Column {
+//            TrainDetailBox(
+//                TrainComposition(
+//                    "",
+//                    listOf<Cdd>(),
+//                    "",
+//                    ChartStatusResponseDto(1, 1, 0, "", "", ""),
+//                    "",
+//                    "",
+//                    "",
+//                    "",
+//                    "",
+//                    "",
+//                    "",
+//                    "",
+//                    "",
+//                    "",
+//                    ""
+//                )
+//            )
+            val navController = rememberNavController()
+            val cdd = listOf<Cdd>(Cdd("A1", "B1", 0, 12), Cdd("B1", "B1", 1, 12))
+            val trainComposition = TrainComposition(cdd)
+            VacantBirthSection(navController, state = HomeState(trainComposition), event = {})
+            CoachStatusSection(navController, state = HomeState(trainComposition), event = {})
+        }
+    }
+//}
 
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,12 +93,12 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel){
                 title = { Text("Train Details") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onPrimary)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
                 )
             )
         }
@@ -97,18 +131,19 @@ fun TrainDetailBox(trainComposition: TrainComposition) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color.LightGray)
-            .clip(shape = RoundedCornerShape(8.dp))
+            .padding(top = 16.dp)
+            .clip(shape = RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer)
             .padding(16.dp)
     ) {
         Column {
-            Text(text = "Train Name: ${trainComposition?.trainName}", style = MaterialTheme.typography.h6)
+            Text(text = "Train Name: ${trainComposition?.trainName}", style = MaterialTheme.typography.bodyLarge)
             Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Train Number: ${trainComposition?.trainNo}", style = MaterialTheme.typography.body1)
+            Text(text = "Train Number: ${trainComposition?.trainNo}", style = MaterialTheme.typography.bodyLarge)
             Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Charting Station: ${trainComposition?.chartStatusResponseDto?.remoteStationCode}", style = MaterialTheme.typography.body1)
+            Text(text = "Charting Station: ${trainComposition?.chartStatusResponseDto?.remoteStationCode}", style = MaterialTheme.typography.bodyLarge)
             Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Chart Created: ${trainComposition?.chartOneDate}", style = MaterialTheme.typography.body1)
+            Text(text = "Chart Created: ${trainComposition?.chartOneDate}", style = MaterialTheme.typography.bodyLarge)
         }
     }
 }
@@ -116,7 +151,7 @@ fun TrainDetailBox(trainComposition: TrainComposition) {
 @Composable
 fun VacantBirthSection(navController: NavController, state: HomeState, event: (HomeEvent)-> Unit) {
     Column {
-        Text(text = "Vacant Birth", style = MaterialTheme.typography.h6)
+        Text(text = "Vacant Birth", style = MaterialTheme.typography.titleLarge)
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -126,14 +161,19 @@ fun VacantBirthSection(navController: NavController, state: HomeState, event: (H
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 8.dp)
-                        .background(Color.Gray, shape = MaterialTheme.shapes.medium)
-                        .padding(16.dp)
+                        .size(48.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.surface,
+                            shape = MaterialTheme.shapes.large
+                        )
+                        .padding(8.dp)
                         .clickable {
                             event(HomeEvent.selectClassCode(classCode))
                             navController.navigate(Routes.BerthDetail.routes)
-                        }
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(text = classCode, color = Color.White)
+                    Text(text = classCode, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center )
                 }
             }
         }
@@ -142,27 +182,45 @@ fun VacantBirthSection(navController: NavController, state: HomeState, event: (H
 
 @Composable
 fun CoachStatusSection(navController: NavController, state: HomeState, event: (HomeEvent)-> Unit) {
-    val coaches = state.trainComposition?.cdd?.flatMap { listOf(Pair(it.coachName, it.classCode) ) }?.distinct()?: emptyList()
-    Column(modifier = Modifier.padding(bottom = 56.dp)) {
-        Text(text = "Coach Status", style = MaterialTheme.typography.h6)
+    val coaches = state.trainComposition?.cdd?.flatMap { listOf(it) }?.distinct()?: emptyList()
+    Column(modifier = Modifier.padding(bottom = 4.dp)) {
+        Text(text = "Coach Status", style = MaterialTheme.typography.titleLarge)
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        LazyColumn {
-            items(coaches) { (coach, classcode) ->
-                Text(
-                    text = coach,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                        .background(Color.LightGray)
-                        .padding(16.dp)
-                        .clickable {
-                            event(HomeEvent.selectClassCode(classcode))
-                            event(HomeEvent.selectCoach(coach))
-                            navController.navigate(Routes.CoachDetail.routes)
-                        }
-                )
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 94.dp)
+        ){
+            items(coaches) {
+                Column(modifier = Modifier
+                    .padding(8.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable {
+                        event(HomeEvent.selectClassCode(it.classCode))
+                        event(HomeEvent.selectCoach(it.coachName))
+                        navController.navigate(Routes.CoachDetail.routes)
+                    }
+                    .background(color = MaterialTheme.colorScheme.primary)
+                    .padding(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "${it.coachName} | ${it.classCode}",
+                        modifier = Modifier
+                            .fillMaxWidth(),
+
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = "Avl: ${it.vacantBerths} ",
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
             }
         }
     }

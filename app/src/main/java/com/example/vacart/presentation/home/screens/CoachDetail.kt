@@ -260,7 +260,7 @@ fun NumberIcon(number: Int, rotationAngle: Float = 270f, colorState: Int = (1..3
                 .size(56.dp) // Adjust the size as needed
                 .graphicsLayer(rotationZ = rotationAngle)
                 .background(color),
-//            tint = color
+            tint = Color.Black
         )
         Column(modifier = Modifier
             .align(alignment)

@@ -25,7 +25,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -74,7 +76,7 @@ fun BerthDetail(navController: NavController, homeViewModel: HomeViewModel = hil
             Row(modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .background(Color(0xFFcdeffb))) {
+                .background(color = MaterialTheme.colorScheme.secondaryContainer)) {
                 TableHeader("From Station",1f) {event(HomeEvent.sortByColumn("fromStation"))}
                 TableHeader("To Station",1f) {event(HomeEvent.sortByColumn("toStation"))}
                 TableHeader("Coach",1f) {event(HomeEvent.sortByColumn("coach"))}
@@ -92,7 +94,8 @@ fun BerthDetail(navController: NavController, homeViewModel: HomeViewModel = hil
                             it.coachName.contains(searchQuery, ignoreCase = true)
                 }
                 items(filteredData){detail ->
-                    Row(modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center) {
                         TableCell(detail.from,1f)
                         TableCell(detail.to,1f)
                         TableCell(detail.coachName,1f)
@@ -112,7 +115,7 @@ fun BerthDetail(navController: NavController, homeViewModel: HomeViewModel = hil
 fun PreviewTrainDetailsScrdeen() {
     val navController = rememberNavController()
     val homeViewModel: HomeViewModel = hiltViewModel()
-   SearchBar(event = homeViewModel::onEvent, searchQuery = "")
+   SearchBar(event = {}, searchQuery = "")
 }
 
 
@@ -125,15 +128,15 @@ fun SearchBar(event: (HomeEvent) -> Unit, searchQuery: String) {
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 12.dp, top = 2.dp, end = 12.dp, bottom = 12.dp)
-            .height(56.dp),  // Set height to standard search bar height
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow
+            .padding(start = 4.dp, top = 2.dp, end = 4.dp, bottom = 12.dp)
+            .height(56.dp), // Set height to standard search bar height
+        shape = RoundedCornerShape(28.dp),
+        color = MaterialTheme.colorScheme.tertiaryContainer
     ) {
         Row(
             modifier = Modifier
                 .fillMaxHeight()
-                .padding(horizontal = 8.dp),
+                .padding(horizontal = 16.dp),
             verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
         ) {
 
@@ -155,17 +158,18 @@ fun SearchBar(event: (HomeEvent) -> Unit, searchQuery: String) {
                 keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { keyboardController?.hide()}),
                 singleLine = true,
-                textStyle = MaterialTheme.typography.headlineSmall,
+                textStyle = TextStyle(color = MaterialTheme.colorScheme.onTertiaryContainer, fontSize = MaterialTheme.typography.headlineSmall.fontSize),
                 decorationBox = { innerTextField ->
                     if (searchQueryState.value.isEmpty()) {
                         Text(
                             text = "Search",
                             style = MaterialTheme.typography.headlineSmall,
-                            color = Color.Gray
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
                         )
                     }
                     innerTextField()
-                }
+                },
+
             )
 
 
@@ -188,7 +192,8 @@ fun RowScope.TableHeader(
             .weight(weight)
             .height(50.dp)
             .padding(8.dp)
-            .clickable(onClick != null) { onClick?.invoke() }
+            .clickable(onClick != null) { onClick?.invoke() },
+        color = MaterialTheme.colorScheme.onSecondaryContainer
     )
 }
 
@@ -203,6 +208,7 @@ fun RowScope.TableCell(
         Modifier
             .border(1.dp, Color.Black)
             .weight(weight)
-            .padding(8.dp)
+            .padding(8.dp),
+        textAlign = TextAlign.Center
     )
 }

@@ -59,13 +59,14 @@ fun Home(navController: NavController, homeViewModel: HomeViewModel){
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
-                    .background(color = MaterialTheme.colorScheme.primaryContainer),
+                    .background(color = MaterialTheme.colorScheme.primary),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "VaCart",
-                    fontSize = 24.sp
+                    fontSize = 24.sp,
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
         }

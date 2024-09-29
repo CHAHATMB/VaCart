@@ -5,6 +5,7 @@ plugins {
     id("com.google.dagger.hilt.android") version "2.48" apply false
 //    id("dagger.hilt.android.plugin") version "1.0.0-alpha03" apply false
     id("com.squareup.wire") version "4.7.0" apply false
+    id("org.jetbrains.kotlin.jvm") version "1.9.0" apply false
 }
 
 //buildscript {
