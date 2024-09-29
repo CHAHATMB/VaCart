@@ -7,6 +7,7 @@ This app is for displaying the available vacant seats in Train after the Chart g
 ## Screenshots
 
 ### Light Theme
+<img src="/screenshots/home.png" alt="drawing" width="200"/>
 ![Home Screen](/screenshots/home.png?raw=true "Home Screen")
 ![Train Detail Screen](/screenshots/traindetail.png?raw=true "Train Detail Screen")
 ![Coach Screen](/screenshots/coach.png?raw=true "Coach Screen")
