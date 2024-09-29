@@ -8,18 +8,17 @@ This app is for displaying the available vacant seats in Train after the Chart g
 
 ### Light Theme
 <img src="/screenshots/home.png" alt="drawing" width="200"/>
-![Home Screen](/screenshots/home.png?raw=true "Home Screen")
-![Train Detail Screen](/screenshots/traindetail.png?raw=true "Train Detail Screen")
-![Coach Screen](/screenshots/coach.png?raw=true "Coach Screen")
-![Coach Bottomshet](/screenshots/coachbottom.png?raw=true "Coach bottomsheet")
-![Vacant Berth Screen](/screenshots/vacantberth.png?raw=true "Vacant Berth Screen")
+<img src="/screenshots/traindetail.png" alt="drawing" width="200"/>
+<img src="/screenshots/coach.png" alt="drawing" width="200"/>
+<img src="/screenshots/coachbottom.png" alt="drawing" width="200"/>
+<img src="/screenshots/vacantberth.png" alt="drawing" width="200"/>
 
 ### Dark Theme
-![Home Screen](/screenshots/home_dark.png?raw=true "Home Screen")
-![Train Detail Screen](/screenshots/traindetail_dark.png?raw=true "Train Detail Screen")
-![Coach Screen](/screenshots/coach_dark.png?raw=true "Coach Screen")
-![Coach Bottomshet](/screenshots/coachbottom_dark.png?raw=true "Coach bottomsheet")
-![Vacant Berth Screen](/screenshots/vacantberth_dark.png?raw=true "Vacant Berth Screen")
+<img src="/screenshots/home_dark.png" alt="drawing" width="200"/>
+<img src="/screenshots/traindetail_dark.png" alt="drawing" width="200"/>
+<img src="/screenshots/coach_dark.png" alt="drawing" width="200"/>
+<img src="/screenshots/coachbottom_dark.png" alt="drawing" width="200"/>
+<img src="/screenshots/vacantberth_dark.png" alt="drawing" width="200"/>
 
 
 ## License
