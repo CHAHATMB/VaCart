@@ -79,9 +79,9 @@ VaChart is a modern Android application that helps travelers find vacant seats i
 ## Kestra 
 
 ### Kestra Config File and Flow
-<img src="/screenshots/kestra-flow.png" alt="Kestra Flow" width="600"/><br>
+<img src="/screenshots/kestra-flow.png" alt="Kestra Flow" width="800"/><br>
 <sub><b>Kestra Flow</b></sub>
 
 ### Kestra Dashboard
-<img src="/screenshots/kestra_execution_metric.png" alt="Kestra Dashboard" width="600"/><br>
+<img src="/screenshots/kestra_execution_metric.png" alt="Kestra Dashboard" width="800"/><br>
 <sub><b>Kestra Dashboard</b></sub>
