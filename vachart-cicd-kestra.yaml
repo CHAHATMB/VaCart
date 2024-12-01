@@ -1,0 +1,27 @@
+id: VaChart_CI_CD
+namespace: piyucha
+
+tasks:
+  - id: cloneRepository
+    type: io.kestra.plugin.git.Clone
+    url: https://github.com/chahatmb/vachart.git
+    branch: main
+
+  - id: runTests
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - ./gradlew test
+
+  - id: generateBuild
+    type: io.kestra.plugin.scripts.shell.Commands
+    taskRunner:
+      type: io.kestra.plugin.core.runner.Process
+    commands:
+      - ./gradlew assembleRelease
+
+triggers:
+  - id: github
+    type: io.kestra.plugin.core.trigger.Webhook
+    key: piyuchasecret
