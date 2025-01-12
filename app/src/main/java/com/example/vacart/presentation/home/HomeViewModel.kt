@@ -2,13 +2,11 @@ package com.example.vacart.presentation.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.room.util.copy
-import com.example.vacart.api.TrainAPI
 import com.example.vacart.model.CoachCompositionRequest
 import com.example.vacart.model.TrainInfoRequest
 import com.example.vacart.model.VacantBerthRequest
-import com.example.vacart.model.Vbd
-import com.example.vacart.util.AhoCorasick
+import com.example.vacart.repository.Result
+import com.example.vacart.repository.TrainRepository
 import com.example.vacart.util.trainList
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,7 +16,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class HomeViewModel @Inject constructor(private val trainAPI: TrainAPI): ViewModel() {
+class HomeViewModel @Inject constructor(private val trainRepository: TrainRepository): ViewModel() {
 
     var _state = MutableStateFlow(HomeState())
     var state: StateFlow<HomeState> = _state.asStateFlow()
@@ -78,12 +76,35 @@ class HomeViewModel @Inject constructor(private val trainAPI: TrainAPI): ViewMod
 
     private fun getTrainComposition(){
         viewModelScope.launch {
-            _state.value.stationList = trainAPI.getStationList(_state.value.trainNumber).body()
+            _state.value = state.value.copy(isLoading = true)
+            when (val apiResult = trainRepository.getStationList(_state.value.trainNumber)) {
+                is Result.Success -> {
+                    _state.value.stationList = apiResult.data
+                }
+                is Result.Error -> {
+                    TODO()
+                }
+                else -> {
+                    println("Do nothing!")
+                }
+            }
             println("value in station list ${_state.value.stationList}")
             _state.value.boardingStation = _state.value.stationList?.stationList?.get(0)?.stationCode.toString();
             println("Boarding station ${_state.value.boardingStation}")
             val trainInfoRequest = TrainInfoRequest(_state.value.boardingStation,_state.value.journeyDate,_state.value.trainNumber)
-            _state.value = _state.value.copy(trainComposition = trainAPI.getTrainComposition(trainInfoRequest).body())
+            when (val apiResult = trainRepository.getTrainComposition(trainInfoRequest)) {
+                is Result.Success -> {
+                    _state.value = _state.value.copy(trainComposition = apiResult.data, isLoading = false)
+                }
+                is Result.Error -> {
+                    TODO()
+                }
+                else -> {
+                    println("Do nothing!")
+                }
+            }
+
+
 
             println("Train composition - ${_state.value.trainComposition}")
         }
@@ -130,7 +151,20 @@ class HomeViewModel @Inject constructor(private val trainAPI: TrainAPI): ViewMod
                 trainNo = _state.value.trainNumber,
                 trainSourceStation = _state.value.boardingStation
             )
-            _state.value = state.value.copy(vacantBerth = trainAPI.getVacantBerth(vacantBerthRequest).body())
+            _state.value = state.value.copy(isLoading = true)
+            when (val apiResult = trainRepository.getVacantBerth(vacantBerthRequest)) {
+                is Result.Success -> {
+                    _state.value = state.value.copy(vacantBerth = apiResult.data, isLoading = false)
+                }
+
+                is Result.Error -> {
+                    TODO()
+                }
+
+                else -> {
+                    println("Do nothing!")
+                }
+            }
             println("vacant birth list ${_state.value.vacantBerth}")
            _state.value = state.value.copy(vacantBerthList = _state.value.vacantBerth!!.vbd)
         }
@@ -151,7 +185,20 @@ class HomeViewModel @Inject constructor(private val trainAPI: TrainAPI): ViewMod
                 coach = _state.value.selectedCoach,
                 trainSourceStation = _state.value.boardingStation
             )
-            _state.value = state.value.copy(coachComposition = trainAPI.getCoachComposition(coachCompositionRequest).body())
+            _state.value = state.value.copy(isLoading = true)
+            when (val apiResult = trainRepository.getCoachComposition(coachCompositionRequest)) {
+                is Result.Success -> {
+                    _state.value = state.value.copy(coachComposition = apiResult.data, isLoading = false)
+                }
+
+                is Result.Error -> {
+                    TODO()
+                }
+
+                else -> {
+                    println("Do nothing!")
+                }
+            }
         }
     }
 

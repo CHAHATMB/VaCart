@@ -75,9 +75,13 @@ import com.example.vacart.model.Cdd
 import com.example.vacart.presentation.home.HomeEvent
 import com.example.vacart.presentation.home.HomeState
 import com.example.vacart.presentation.home.HomeViewModel
+import com.example.vacart.presentation.home.util.getSeatName
+import com.example.vacart.presentation.home.util.is1A
+import com.example.vacart.presentation.home.util.is2A
 import com.example.vacart.presentation.home.util.leftLine
 import com.example.vacart.presentation.home.util.rightLine
 import com.example.vacart.util.getBirthOccupancyColor
+import kotlin.math.ceil
 import kotlin.random.Random
 
 val LocalViewModel = compositionLocalOf<HomeViewModel> { error("No ViewModel provided") }
@@ -154,15 +158,64 @@ fun MyLazyVerticalGrid(state: HomeState) {
     var selectedBirth by remember { mutableStateOf(0) }
     val totalCoaches = state.coachComposition?.bdd?.size ?: 0
     val data = state.coachComposition?.bdd
-    val items = (1..totalCoaches + (totalCoaches/8*2)).map{it.toString()} // Sample data
+    val divider = if(state.selectedClassCode.is1A()) 4 else if(state.selectedClassCode.is2A()) 6 else 8
+    val items = (1..totalCoaches + (ceil(totalCoaches.toDouble()/divider).toInt()*2)).map{it.toString()} // Sample data
     Column {
+        val fixedCell = if(state.selectedClassCode.is1A()) 3 else if(state.selectedClassCode.is2A()) 4 else 5
         LazyVerticalGrid(
-            columns = GridCells.Fixed(5),
+            columns = GridCells.Fixed(fixedCell),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(8.dp)
         ) {
+            if(state.selectedClassCode.is2A()){
+                itemsIndexed(items){index, item -> // zero based indexing
+                    /** index = 11, ci = 12
+                     *  counter = 2* 2 = 4
+                     *  aI = 12 - 4 = 8
+                     *  aI = 10
+                     * */
+                    var counter = 2 * maxOf(0, ((index+1)-4)/8+1)
+                    if(index<4) counter = 0
+                    var actualIndex = (index+1) - counter
+                    if((index+1)%8 == 4){
+                        actualIndex += 3
+                    }
+                    if(index == 3) actualIndex = 5 // special case
+                    if(index in (0..3)){
+                        HorizontalLine()
+                    }
+
+                    if(index%4 != 2 && actualIndex <= totalCoaches){
+                        val colorState = getBirthOccupancyColor(data?.get(actualIndex-1), state.stationList)
+                        Column(modifier = Modifier
+                            .then(
+                                if (index % 4 == 0)
+                                    Modifier.leftLine()
+                                else if (index % 4 == 3)
+                                    Modifier.rightLine()
+                                else Modifier
+                            )
+                        ) {
+
+                            // Add a horizontal line after every two items
+                            if (index % 8 in (4..7)) {
+                                NumberIcon(actualIndex,90f, colorState, onClick = {
+                                    selectedBirth = it-1
+                                    showSheet = true
+                                    println("clicking!! $selectedBirth")})
+                                HorizontalLine()
+                            } else {
+                                NumberIcon(actualIndex, colorState = colorState){
+                                    selectedBirth = it-1
+                                    showSheet = true
+                                    println("clicking!! $selectedBirth")}
+                            }
+                        }
+                    }
+                }
+            } else
             itemsIndexed(items) { index, item ->
-                var counter = (2 * maxOf(0, ((index+1)-6)/10+1))
+                var counter = 2 * maxOf(0, ((index+1)-6)/10+1)
                 if(index<5) counter = 0
                 var actualIndex = (index+1) - counter
                 if((index+1)%10 == 5){
@@ -181,23 +234,19 @@ fun MyLazyVerticalGrid(state: HomeState) {
                             else if (index % 5 == 4)
                                 Modifier.rightLine()
                             else Modifier
-
                         )
-//                        .clickable {
-//                            selectedBirth = actualIndex
-//                            showSheet = true
-//                            println("clicking!! $selectedBirth")
-//                        }
                     ) {
 
                         // Add a horizontal line after every two items
                         if (index % 10 in (5..9)) {
-                            NumberIcon(actualIndex,90f, colorState, onClick = {selectedBirth = it-1
+                            NumberIcon(actualIndex,90f, colorState, onClick = {
+                                selectedBirth = it-1
                                 showSheet = true
                                 println("clicking!! $selectedBirth")})
                             HorizontalLine()
                         } else {
-                            NumberIcon(actualIndex, colorState = colorState){selectedBirth = it-1
+                            NumberIcon(actualIndex, colorState = colorState){
+                                selectedBirth = it-1
                                 showSheet = true
                                 println("clicking!! $selectedBirth")}
                         }
@@ -214,7 +263,6 @@ fun MyLazyVerticalGrid(state: HomeState) {
     }
 }
 
-
 @Composable
 fun HorizontalLine() {
     Box(
@@ -228,20 +276,13 @@ fun HorizontalLine() {
 
 
 @Composable
-fun NumberIcon(number: Int, rotationAngle: Float = 270f, colorState: Int = (1..3).random(), onClick : (Int)->Unit = {}) {
+fun NumberIcon(number: Int, rotationAngle: Float = 270f, colorState: Int = (1..3).random(), classCode: String = "3A" ,onClick : (Int)->Unit = {}) {
     val alignment =
         if(rotationAngle == 270f ){ Alignment.TopCenter} else {Alignment.BottomCenter}
     val padding =
         if(rotationAngle == 270f ){ PaddingValues(top = 12.dp)
         } else {PaddingValues(bottom = 12.dp)}
-    val birthPosition = when(number%8){
-        1, 4 -> "L"
-        2, 5 -> "M"
-        3, 6 -> "U"
-        7 -> "SL"
-        0 -> "SU"
-        else -> ""
-    }
+    val birthPosition = getSeatName(number, classCode = classCode)
     val color = when(colorState){
         1 -> Color(0xFF9effff)
         2 -> Color(0xFFfffd9e)

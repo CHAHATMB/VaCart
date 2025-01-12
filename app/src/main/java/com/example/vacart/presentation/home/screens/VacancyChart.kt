@@ -70,6 +70,7 @@ fun PreviewTrainDetailsScreen() {
             val trainComposition = TrainComposition(cdd)
             VacantBirthSection(navController, state = HomeState(trainComposition), event = {})
             CoachStatusSection(navController, state = HomeState(trainComposition), event = {})
+            LoadingScreen()
         }
     }
 //}
@@ -107,8 +108,8 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel){
             .padding(it)
             .padding(horizontal = 16.dp)) {
             // Train Details Section
-            if( state.trainComposition == null ){
-                Text(text = "Loading...")
+            if( state.isLoading){
+                LoadingScreen()
             } else {
                 TrainDetailBox(state.trainComposition!!)
 
@@ -191,7 +192,7 @@ fun CoachStatusSection(navController: NavController, state: HomeState, event: (H
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 94.dp)
         ){
-            items(coaches) {
+            items(coaches.sortedBy { coach -> coach.classCode }) {
                 Column(modifier = Modifier
                     .padding(8.dp)
                     .clip(RoundedCornerShape(8.dp))
@@ -222,6 +223,31 @@ fun CoachStatusSection(navController: NavController, state: HomeState, event: (H
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun LoadingScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            CircularProgressIndicator()
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "We are fetching train data, please wait...",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
     }
 }
