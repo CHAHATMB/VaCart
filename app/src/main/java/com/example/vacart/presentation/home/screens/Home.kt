@@ -53,7 +53,7 @@ fun Home(navController: NavController, homeViewModel: HomeViewModel) {
     val dateList = arrayOf("2 days ago", "Yesterday", "Today", "Tomorrow")
     var selectedText by remember { mutableStateOf("") }
 
-    Scaffold(
+    Scaffold (
         topBar = {
             Row(
                 modifier = Modifier

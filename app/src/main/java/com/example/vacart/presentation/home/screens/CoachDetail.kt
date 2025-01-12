@@ -245,8 +245,7 @@ fun MyLazyVerticalGrid(state: HomeState) {
                                 println("clicking!! $selectedBirth")})
                             HorizontalLine()
                         } else {
-                            NumberIcon(actualIndex, colorState = colorState){
-                                selectedBirth = it-1
+                            NumberIcon(actualIndex, colorState = colorState){selectedBirth = it-1
                                 showSheet = true
                                 println("clicking!! $selectedBirth")}
                         }
@@ -276,7 +275,7 @@ fun HorizontalLine() {
 
 
 @Composable
-fun NumberIcon(number: Int, rotationAngle: Float = 270f, colorState: Int = (1..3).random(), classCode: String = "3A" ,onClick : (Int)->Unit = {}) {
+fun NumberIcon(number: Int, rotationAngle: Float = 270f, colorState: Int = (1..3).random(), onClick : (Int)->Unit = {}) {
     val alignment =
         if(rotationAngle == 270f ){ Alignment.TopCenter} else {Alignment.BottomCenter}
     val padding =
