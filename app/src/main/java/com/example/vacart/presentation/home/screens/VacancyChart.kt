@@ -25,9 +25,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.HorizontalAlignmentLine
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
@@ -110,6 +113,8 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel){
             // Train Details Section
             if( state.isLoading){
                 LoadingScreen()
+            } else if(state.showError){
+                ErrorPage(navController = navController, errorMessage = "Something went wrong! Please try again later.")
             } else {
                 TrainDetailBox(state.trainComposition!!)
 
@@ -248,6 +253,42 @@ fun LoadingScreen() {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
+        }
+    }
+}
+
+@Composable
+fun ErrorPage(navController: NavController, errorMessage: String) {
+    // Column to layout error message and actions
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(16.dp)
+        ) {
+            // Error Message Text
+            Text(
+                text = "Oops!",
+                style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer),
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            Text(
+                text = errorMessage,
+                style = TextStyle(fontSize = 18.sp, color = MaterialTheme.colorScheme.onPrimaryContainer),
+                modifier = Modifier.padding(bottom = 24.dp)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedButton(
+                onClick = { navController.popBackStack() },
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                Text("Go Back", color = MaterialTheme.colorScheme.onPrimaryContainer)
+            }
         }
     }
 }

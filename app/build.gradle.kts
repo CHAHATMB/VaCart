@@ -3,7 +3,6 @@ plugins {
     id("org.jetbrains.kotlin.android")
     id("kotlin-kapt")
     id("com.google.dagger.hilt.android")
-//    id("dagger.hilt.android.plugin")
     id("com.squareup.wire")
 }
 
@@ -61,10 +60,13 @@ wire {
 }
 
 dependencies {
-
-    implementation("androidx.room:room-ktx:2.6.1")
+    val room_version = "2.6.1"
     val nav_version = "2.7.6"
     val lifecycle_version = "2.7.0"
+
+    implementation("androidx.room:room-ktx:2.6.1")
+    implementation("androidx.room:room-runtime:$room_version")
+    kapt("androidx.room:room-compiler:$room_version")
 
     implementation("androidx.core:core-ktx:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:$lifecycle_version")
@@ -119,7 +121,4 @@ dependencies {
     implementation("no.nordicsemi.android:ble-livedata:2.7.5")
     implementation("no.nordicsemi.android:ble-common:2.7.5")
     implementation("no.nordicsemi.android.common:permissions-ble:1.8.4")
-
-
-
 }

@@ -7,16 +7,21 @@ import com.example.vacart.model.TrainInfoRequest
 import com.example.vacart.model.VacantBerthRequest
 import com.example.vacart.repository.Result
 import com.example.vacart.repository.TrainRepository
+import com.example.vacart.roomdatabase.SearchDao
+import com.example.vacart.roomdatabase.SearchEntity
+import com.example.vacart.roomdatabase.SearchEntityKey
 import com.example.vacart.util.trainList
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class HomeViewModel @Inject constructor(private val trainRepository: TrainRepository): ViewModel() {
+class HomeViewModel @Inject constructor(private val trainRepository: TrainRepository, private val searchDao: SearchDao): ViewModel() {
 
     var _state = MutableStateFlow(HomeState())
     var state: StateFlow<HomeState> = _state.asStateFlow()
@@ -60,6 +65,19 @@ class HomeViewModel @Inject constructor(private val trainRepository: TrainReposi
         }
     }
 
+    // Recent searches from the database
+    val recentSearches = searchDao.getRecentSearches()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            emptyList()
+        )
+
+    fun saveSearch(trainNumber: String, journeyDate: String) {
+        viewModelScope.launch {
+            searchDao.insertSearch(SearchEntity(trainNumber = trainNumber, journeyDate = journeyDate, searchEntityKey = SearchEntityKey(trainNumber = trainNumber, journeyDate = journeyDate)))
+        }
+    }
     private fun filterTrains(selectedText: String) {
         if(selectedText.length >2 ) {
             viewModelScope.launch {
@@ -82,7 +100,8 @@ class HomeViewModel @Inject constructor(private val trainRepository: TrainReposi
                     _state.value.stationList = apiResult.data
                 }
                 is Result.Error -> {
-                    TODO()
+                    _state.value = state.value.copy(showError = true, isLoading = false)
+                    println("You got error!")
                 }
                 else -> {
                     println("Do nothing!")
@@ -97,15 +116,12 @@ class HomeViewModel @Inject constructor(private val trainRepository: TrainReposi
                     _state.value = _state.value.copy(trainComposition = apiResult.data, isLoading = false)
                 }
                 is Result.Error -> {
-                    TODO()
+                    _state.value = state.value.copy(showError = true)
                 }
                 else -> {
                     println("Do nothing!")
                 }
             }
-
-
-
             println("Train composition - ${_state.value.trainComposition}")
         }
     }

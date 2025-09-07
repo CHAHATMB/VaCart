@@ -20,6 +20,7 @@ data class HomeState(
     var coachComposition: CoachComposition? = null,
     var selectedDateString: String = "",
     var isLoading: Boolean = true,
+    var showError: Boolean = false,
     var searchQuery: String = "",
     var vacantBerth: VacantBerth? = null,
     var vacantBerthList: List<Vbd> = emptyList(),
