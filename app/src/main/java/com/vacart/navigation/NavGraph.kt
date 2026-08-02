@@ -51,6 +51,13 @@ fun NavGraph(navController: NavHostController){
                 val homeViewMode: HomeViewModel = hiltViewModel(parentEntry)
                 CoachDetail(navController, homeViewMode)
             }
+            composable(Routes.TrainSchedule.routes){
+                val parentEntry = remember(it) {
+                    navController.getBackStackEntry(Routes.HomeGraph.routes)
+                }
+                val homeViewMode: HomeViewModel = hiltViewModel(parentEntry)
+                com.vacart.presentation.home.screens.TrainSchedule(navController, homeViewMode)
+            }
         }
         navigation(
             startDestination = Routes.Chat.routes,

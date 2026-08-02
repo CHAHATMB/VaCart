@@ -86,6 +86,7 @@ fun CoachDetail(navController: NavController, homeViewModel: HomeViewModel = hil
     }
     CompositionLocalProvider(LocalViewModel provides homeViewModel) {
         Scaffold(
+            contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
             topBar = {
                 CenterAlignedTopAppBar(
                     title = {

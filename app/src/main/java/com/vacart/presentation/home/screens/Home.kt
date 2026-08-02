@@ -1,13 +1,13 @@
 package com.vacart.presentation.home.screens
 
-import android.util.Log
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
@@ -30,25 +31,26 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import com.vacart.model.TrainInfo
 import com.vacart.navigation.Routes
 import com.vacart.presentation.home.HomeEvent
 import com.vacart.presentation.home.HomeState
@@ -71,6 +73,7 @@ fun Home(
     val recentSearches by homeViewModel.recentSearches.collectAsState(emptyList())
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
@@ -96,6 +99,31 @@ fun Home(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 )
             )
+        },
+        floatingActionButton = {
+            if (state.trainNumber.isNotBlank()) {
+                androidx.compose.material3.ExtendedFloatingActionButton(
+                    onClick = {
+                        event(HomeEvent.fetchStationList(state.trainNumber))
+                        navController.navigate(Routes.TrainSchedule.routes)
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.DateRange,
+                            contentDescription = "Train Schedule"
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "Train Schedule",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
         }
     ) { paddingValues ->
         Column(
@@ -128,27 +156,23 @@ fun Home(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Train Number Input Field
-                    OutlinedTextField(
-                        value = state.selectedTrain,
-                        onValueChange = {
+                    // Train Number / Name Search AutoComplete Field
+                    TrainSearchAutoCompleteField(
+                        state = state,
+                        showError = showError,
+                        onValueChange = { input ->
                             showError = false
-                            state.selectedTrain = it
-                            event(HomeEvent.updateTrainNumber(it))
+                            event(HomeEvent.updateTrainNumber(input))
                         },
-                        label = { Text(text = "Train Number / Name") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Train,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary
-                            )
+                        onSuggestionSelected = { trainInfo ->
+                            showError = false
+                            event(HomeEvent.selectTrainInfo(trainInfo))
                         },
-                        isError = showError && state.selectedTrain.isEmpty(),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                        singleLine = true
+                        onClearInput = {
+                            event(HomeEvent.updateTrainNumber(""))
+                        }
                     )
+
                     if (showError && state.selectedTrain.isEmpty()) {
                         Text(
                             text = "Train number cannot be empty",
@@ -257,6 +281,100 @@ fun Home(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TrainSearchAutoCompleteField(
+    state: HomeState,
+    showError: Boolean,
+    onValueChange: (String) -> Unit,
+    onSuggestionSelected: (TrainInfo) -> Unit,
+    onClearInput: () -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded && state.filteredTrains.isNotEmpty(),
+        onExpandedChange = { expanded = it },
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        OutlinedTextField(
+            value = state.selectedTrain,
+            onValueChange = { input ->
+                onValueChange(input)
+                expanded = true
+            },
+            label = { Text(text = "Train Number / Name") },
+            placeholder = { Text(text = "Search e.g. 22637 or West Coast") },
+            leadingIcon = {
+                Icon(
+                    imageVector = Icons.Default.Train,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            },
+            trailingIcon = {
+                if (state.selectedTrain.isNotEmpty()) {
+                    IconButton(onClick = {
+                        onClearInput()
+                        expanded = false
+                    }) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            isError = showError && state.selectedTrain.isEmpty(),
+            modifier = Modifier
+                .menuAnchor()
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            singleLine = true
+        )
+
+        if (state.filteredTrains.isNotEmpty()) {
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.heightIn(max = 280.dp)
+            ) {
+                state.filteredTrains.forEach { trainInfo ->
+                    DropdownMenuItem(
+                        text = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = trainInfo.trainNumber,
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = trainInfo.trainName,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        },
+                        onClick = {
+                            onSuggestionSelected(trainInfo)
+                            expanded = false
+                        }
+                    )
                 }
             }
         }

@@ -7,6 +7,7 @@ import com.vacart.model.TrainComposition
 import com.vacart.model.TrainInfoRequest
 import com.vacart.model.VacantBerth
 import com.vacart.model.VacantBerthRequest
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -15,6 +16,10 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 
 interface TrainAPI {
+
+    @GET("/eticketing/trainList")
+    suspend fun getTrainList(): Response<ResponseBody>
+
     
     @Headers("greq: 1705426938144")
     @GET("/eticketing/protected/mapps1/trnscheduleenquiry/{trainNumber}")

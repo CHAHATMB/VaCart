@@ -34,6 +34,7 @@ import no.nordicsemi.android.common.permissions.ble.RequireBluetooth
 @Composable
 fun Chat() {
     Scaffold(
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
         topBar = {
             CenterAlignedTopAppBar(
                 title = {

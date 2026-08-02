@@ -26,6 +26,10 @@ import com.vacart.navigation.NavGraph
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.ui.unit.dp
 
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.NavigationBarDefaults
+
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @Composable
 fun MainScreen() {
@@ -34,7 +38,11 @@ fun MainScreen() {
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
         bottomBar = { BottomBar(navController = navController)}
     ) { innerPadding ->
-        Box(modifier = Modifier.padding(innerPadding)) {
+        Box(
+            modifier = Modifier
+                .padding(bottom = innerPadding.calculateBottomPadding())
+                .fillMaxSize()
+        ) {
             NavGraph(navController = navController)
         }
     }
@@ -47,9 +55,9 @@ fun BottomBar(navController: NavHostController) {
     val currentDestination = navBackStackEntry?.destination
 
     NavigationBar(
-        modifier = Modifier.height(64.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 6.dp
+        tonalElevation = 6.dp,
+        windowInsets = NavigationBarDefaults.windowInsets
     ) {
         screens.forEach { screen ->
             AddItem(screen = screen, currentDestination = currentDestination, navController = navController)
@@ -69,16 +77,11 @@ fun RowScope.AddItem(
         icon = {
             Icon(
                 imageVector = screen.icon,
-                contentDescription = screen.title
+                contentDescription = screen.title,
+                modifier = Modifier.size(26.dp)
             )
         },
-        label = {
-            androidx.compose.material3.Text(
-                text = screen.title,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Medium
-            )
-        },
+        alwaysShowLabel = false,
         selected = isSelected,
         onClick = {
             if (!isSelected) {
@@ -90,9 +93,7 @@ fun RowScope.AddItem(
         },
         colors = NavigationBarItemDefaults.colors(
             selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-            selectedTextColor = MaterialTheme.colorScheme.primary,
             unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
             indicatorColor = MaterialTheme.colorScheme.primaryContainer
         )
     )

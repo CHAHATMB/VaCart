@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AirlineSeatReclineExtra
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Train
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.AssistChip
@@ -72,6 +73,7 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel) {
     }
 
     Scaffold(
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
         topBar = {
             CenterAlignedTopAppBar(
                 title = {
@@ -92,6 +94,29 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel) {
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 )
+            )
+        },
+        floatingActionButton = {
+            androidx.compose.material3.ExtendedFloatingActionButton(
+                onClick = {
+                    event(HomeEvent.fetchStationList(state.trainNumber))
+                    navController.navigate(Routes.TrainSchedule.routes)
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.DateRange,
+                        contentDescription = "Train Schedule"
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Train Schedule",
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                },
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = RoundedCornerShape(16.dp)
             )
         }
     ) { paddingValues ->
