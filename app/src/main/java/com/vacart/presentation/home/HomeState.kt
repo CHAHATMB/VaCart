@@ -22,6 +22,7 @@ data class HomeState(
     var selectedDateString: String = "",
     var isLoading: Boolean = true,
     var showError: Boolean = false,
+    var errorMessage: String? = null,
     var searchQuery: String = "",
     var vacantBerth: VacantBerth? = null,
     var vacantBerthList: List<Vbd> = emptyList(),

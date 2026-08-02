@@ -165,14 +165,18 @@ class HomeViewModel @Inject constructor(
 
     private fun getTrainComposition() {
         viewModelScope.launch {
-            _state.value = state.value.copy(isLoading = true)
+            _state.value = state.value.copy(isLoading = true, showError = false, errorMessage = null)
             when (val apiResult = trainRepository.getStationList(_state.value.trainNumber)) {
                 is Result.Success -> {
                     _state.value = _state.value.copy(stationList = apiResult.data)
                 }
                 is Result.Error -> {
-                    _state.value = state.value.copy(showError = true, isLoading = false)
-                    println("You got error!")
+                    _state.value = _state.value.copy(
+                        showError = true,
+                        errorMessage = apiResult.exception.message,
+                        isLoading = false
+                    )
+                    return@launch
                 }
                 else -> {}
             }
@@ -184,7 +188,11 @@ class HomeViewModel @Inject constructor(
                     _state.value = _state.value.copy(trainComposition = apiResult.data, isLoading = false)
                 }
                 is Result.Error -> {
-                    _state.value = state.value.copy(showError = true)
+                    _state.value = _state.value.copy(
+                        showError = true,
+                        errorMessage = apiResult.exception.message,
+                        isLoading = false
+                    )
                 }
                 else -> {}
             }

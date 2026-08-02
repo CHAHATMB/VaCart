@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ConfirmationNumber
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Train
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -131,7 +132,7 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel) {
             } else if (state.showError) {
                 ErrorPage(
                     navController = navController,
-                    errorMessage = "Something went wrong! Please try again later."
+                    errorMessage = state.errorMessage ?: "Something went wrong! Please try again later."
                 )
             } else state.trainComposition?.let { trainComp ->
                 TrainDetailBox(trainComp)
@@ -370,33 +371,58 @@ fun LoadingScreen() {
 @Composable
 fun ErrorPage(navController: NavController, errorMessage: String) {
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-            modifier = Modifier.padding(16.dp)
+        ElevatedCard(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.elevatedCardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            ),
+            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp)
         ) {
-            Text(
-                text = "Unable to load data",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-
-            Text(
-                text = errorMessage,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 24.dp)
-            )
-
-            OutlinedButton(
-                onClick = { navController.popBackStack() },
-                shape = RoundedCornerShape(12.dp)
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(24.dp)
             ) {
-                Text("Go Back")
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = "Alert",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(44.dp)
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Service Notice",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.error,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                OutlinedButton(
+                    onClick = { navController.popBackStack() },
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Go Back")
+                }
             }
         }
     }

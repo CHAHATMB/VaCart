@@ -1,5 +1,7 @@
 package com.vacart.presentation.home.screens
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.History
@@ -30,13 +33,17 @@ import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -56,6 +63,7 @@ import com.vacart.presentation.home.HomeEvent
 import com.vacart.presentation.home.HomeState
 import com.vacart.presentation.home.HomeViewModel
 import com.vacart.roomdatabase.SearchEntity
+import com.vacart.util.FeatureFlags
 import com.vacart.util.getDateBasedOnOffset
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,6 +77,9 @@ fun Home(
 
     val dateList = arrayOf("2 days ago", "Yesterday", "Today", "Tomorrow")
     var showError by remember { mutableStateOf(false) }
+
+    var showTrainBottomSheet by remember { mutableStateOf(false) }
+    var showDateBottomSheet by remember { mutableStateOf(false) }
 
     val recentSearches by homeViewModel.recentSearches.collectAsState(emptyList())
 
@@ -102,7 +113,7 @@ fun Home(
         },
         floatingActionButton = {
             if (state.trainNumber.isNotBlank()) {
-                androidx.compose.material3.ExtendedFloatingActionButton(
+                ExtendedFloatingActionButton(
                     onClick = {
                         event(HomeEvent.fetchStationList(state.trainNumber))
                         navController.navigate(Routes.TrainSchedule.routes)
@@ -156,22 +167,59 @@ fun Home(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Train Number / Name Search AutoComplete Field
-                    TrainSearchAutoCompleteField(
-                        state = state,
-                        showError = showError,
-                        onValueChange = { input ->
-                            showError = false
-                            event(HomeEvent.updateTrainNumber(input))
-                        },
-                        onSuggestionSelected = { trainInfo ->
-                            showError = false
-                            event(HomeEvent.selectTrainInfo(trainInfo))
-                        },
-                        onClearInput = {
-                            event(HomeEvent.updateTrainNumber(""))
-                        }
-                    )
+                    // Train Input Field (Bottom Sheet vs Dropdown Feature Flag)
+                    if (FeatureFlags.isBottomSheetSearchEnabled) {
+                        ClickableInputField(
+                            value = state.selectedTrain,
+                            label = "Train Number / Name",
+                            placeholder = "Tap to search train number or name",
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Train,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            trailingIcon = {
+                                if (state.selectedTrain.isNotEmpty()) {
+                                    IconButton(onClick = { event(HomeEvent.updateTrainNumber("")) }) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Clear train",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Search train",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            },
+                            isError = showError && state.selectedTrain.isEmpty(),
+                            onClick = {
+                                showError = false
+                                showTrainBottomSheet = true
+                            }
+                        )
+                    } else {
+                        TrainSearchAutoCompleteField(
+                            state = state,
+                            showError = showError,
+                            onValueChange = { input ->
+                                showError = false
+                                event(HomeEvent.updateTrainNumber(input))
+                            },
+                            onSuggestionSelected = { trainInfo ->
+                                showError = false
+                                event(HomeEvent.selectTrainInfo(trainInfo))
+                            },
+                            onClearInput = {
+                                event(HomeEvent.updateTrainNumber(""))
+                            }
+                        )
+                    }
 
                     if (showError && state.selectedTrain.isEmpty()) {
                         Text(
@@ -184,12 +232,40 @@ fun Home(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Date Selection Dropdown
-                    DropDownMenuField(state = state, dateList = dateList) { sT ->
-                        showError = false
-                        state.journeyDate = getDateBasedOnOffset(sT - 2)
-                        event(HomeEvent.updateSelectDate(dateList[sT]))
+                    // Date Selection Field (Bottom Sheet vs Dropdown Feature Flag)
+                    if (FeatureFlags.isBottomSheetSearchEnabled) {
+                        ClickableInputField(
+                            value = state.selectedDateString,
+                            label = "Journey Date",
+                            placeholder = "Select journey date",
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.DateRange,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            },
+                            isError = showError && state.journeyDate.isEmpty(),
+                            onClick = {
+                                showError = false
+                                showDateBottomSheet = true
+                            }
+                        )
+                    } else {
+                        DropDownMenuField(state = state, dateList = dateList) { sT ->
+                            showError = false
+                            state.journeyDate = getDateBasedOnOffset(sT - 2)
+                            event(HomeEvent.updateSelectDate(dateList[sT]))
+                        }
                     }
+
                     if (showError && state.journeyDate.isEmpty()) {
                         Text(
                             text = "Date cannot be empty",
@@ -279,6 +355,334 @@ fun Home(
                                     event(HomeEvent.updateSelectDate(search.journeyDate))
                                 })
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Train Search Bottom Sheet
+        if (showTrainBottomSheet) {
+            TrainSearchBottomSheet(
+                state = state,
+                onSearchQueryChange = { input ->
+                    event(HomeEvent.updateTrainNumber(input))
+                },
+                onSuggestionSelected = { trainInfo ->
+                    event(HomeEvent.selectTrainInfo(trainInfo))
+                    showTrainBottomSheet = false
+                },
+                onDismiss = {
+                    showTrainBottomSheet = false
+                }
+            )
+        }
+
+        // Journey Date Selection Bottom Sheet
+        if (showDateBottomSheet) {
+            DateSelectionBottomSheet(
+                state = state,
+                dateList = dateList,
+                onDateSelected = { index ->
+                    state.journeyDate = getDateBasedOnOffset(index - 2)
+                    event(HomeEvent.updateSelectDate(dateList[index]))
+                    showDateBottomSheet = false
+                },
+                onDismiss = {
+                    showDateBottomSheet = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun ClickableInputField(
+    value: String,
+    label: String,
+    placeholder: String,
+    leadingIcon: @Composable () -> Unit,
+    trailingIcon: @Composable (() -> Unit)? = null,
+    isError: Boolean,
+    onClick: () -> Unit
+) {
+    Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            placeholder = { Text(placeholder) },
+            leadingIcon = leadingIcon,
+            trailingIcon = trailingIcon,
+            isError = isError,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            singleLine = true
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clickable { onClick() }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TrainSearchBottomSheet(
+    state: HomeState,
+    onSearchQueryChange: (String) -> Unit,
+    onSuggestionSelected: (TrainInfo) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Train,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Search Train",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = state.selectedTrain,
+                onValueChange = onSearchQueryChange,
+                placeholder = { Text("Type train number or name (e.g. 22637 or West Coast)") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                },
+                trailingIcon = {
+                    if (state.selectedTrain.isNotEmpty()) {
+                        IconButton(onClick = { onSearchQueryChange("") }) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (state.selectedTrain.length < 2) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.outline,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Type at least 2 characters to search",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else if (state.filteredTrains.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No trains found matching \"${state.selectedTrain}\"",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                ) {
+                    items(state.filteredTrains) { trainInfo ->
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainer
+                            ),
+                            onClick = {
+                                onSuggestionSelected(trainInfo)
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Card(
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                                    )
+                                ) {
+                                    Text(
+                                        text = trainInfo.trainNumber,
+                                        style = MaterialTheme.typography.labelLarge.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        ),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Text(
+                                    text = trainInfo.trainName,
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DateSelectionBottomSheet(
+    state: HomeState,
+    dateList: Array<String>,
+    onDateSelected: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 24.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DateRange,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = "Select Journey Date",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            dateList.forEachIndexed { index, dateLabel ->
+                val dateValue = getDateBasedOnOffset(index - 2)
+                val isSelected = state.selectedDateString == dateLabel
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isSelected)
+                            MaterialTheme.colorScheme.primaryContainer
+                        else
+                            MaterialTheme.colorScheme.surfaceContainer
+                    ),
+                    onClick = {
+                        onDateSelected(index)
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = dateLabel,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                )
+                            )
+                            Text(
+                                text = "Date: $dateValue",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Selected",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
                     }
                 }
