@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package com.example.vacart.proto;
+package com.vacart.proto;
 
 enum OpCodeProto {
   NEW_QUESTION = 0;
