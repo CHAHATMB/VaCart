@@ -23,14 +23,18 @@ import androidx.navigation.compose.rememberNavController
 import com.vacart.navigation.BottomBarScreen
 import com.vacart.navigation.NavGraph
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.ui.unit.dp
+
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @Composable
 fun MainScreen() {
     val navController = rememberNavController()
     Scaffold(
+        contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
         bottomBar = { BottomBar(navController = navController)}
-    ) {
-        Box(modifier = Modifier.padding(it)) {
+    ) { innerPadding ->
+        Box(modifier = Modifier.padding(innerPadding)) {
             NavGraph(navController = navController)
         }
     }
@@ -43,6 +47,7 @@ fun BottomBar(navController: NavHostController) {
     val currentDestination = navBackStackEntry?.destination
 
     NavigationBar(
+        modifier = Modifier.height(64.dp),
         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         tonalElevation = 6.dp
     ) {

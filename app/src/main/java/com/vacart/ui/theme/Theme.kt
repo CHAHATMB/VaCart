@@ -285,9 +285,13 @@ fun VaCartTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
-            window.navigationBarColor = Color.Transparent.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = darkTheme
+            val statusBarColor = colorScheme.surfaceContainerHigh.toArgb()
+            val navBarColor = colorScheme.surfaceContainerHigh.toArgb()
+            window.statusBarColor = statusBarColor
+            window.navigationBarColor = navBarColor
+            val controller = WindowCompat.getInsetsController(window, view)
+            controller.isAppearanceLightStatusBars = !darkTheme
+            controller.isAppearanceLightNavigationBars = !darkTheme
         }
     }
 

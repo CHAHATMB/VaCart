@@ -117,7 +117,7 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel) {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                CoachStatusSection(navController, state, event)
+                CoachStatusSection(navController, state, event, modifier = Modifier.weight(1f))
             }
         }
     }
@@ -248,9 +248,9 @@ fun VacantBirthSection(navController: NavController, state: HomeState, event: (H
 }
 
 @Composable
-fun CoachStatusSection(navController: NavController, state: HomeState, event: (HomeEvent) -> Unit) {
+fun CoachStatusSection(navController: NavController, state: HomeState, event: (HomeEvent) -> Unit, modifier: Modifier = Modifier) {
     val coaches = state.trainComposition?.cdd?.flatMap { listOf(it) }?.distinct() ?: emptyList()
-    Column(modifier = Modifier.padding(bottom = 4.dp)) {
+    Column(modifier = modifier.padding(bottom = 4.dp)) {
         Text(
             text = "Coach Status Breakdown",
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -261,6 +261,7 @@ fun CoachStatusSection(navController: NavController, state: HomeState, event: (H
 
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 100.dp),
+            modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
