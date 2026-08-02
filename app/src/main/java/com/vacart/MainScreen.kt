@@ -42,14 +42,12 @@ fun BottomBar(navController: NavHostController) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
-    val colorScheme = MaterialTheme.colorScheme
     NavigationBar(
-        modifier = Modifier.height(50.dp),
-        containerColor = colorScheme.surface,
-        tonalElevation = 8.dp // Optional: Add shadow/elevation for better visibility
+        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 6.dp
     ) {
         screens.forEach { screen ->
-           AddItem(screen = screen, currentDestination = currentDestination, navController = navController)
+            AddItem(screen = screen, currentDestination = currentDestination, navController = navController)
         }
     }
 }
@@ -63,20 +61,19 @@ fun RowScope.AddItem(
 ) {
     val isSelected = currentDestination?.route == screen.route
     NavigationBarItem(
-        modifier = Modifier.padding(0.dp),
         icon = {
             Icon(
                 imageVector = screen.icon,
                 contentDescription = screen.title
             )
         },
-//        label = {
-//            Text(
-//                text = screen.title,
-//                style = MaterialTheme.typography.labelSmall, // Smaller text style
-//                modifier = Modifier.padding(top = 2.dp) // Reduce padding between icon and text
-//            )
-//        },
+        label = {
+            androidx.compose.material3.Text(
+                text = screen.title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (isSelected) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Medium
+            )
+        },
         selected = isSelected,
         onClick = {
             if (!isSelected) {
@@ -87,10 +84,10 @@ fun RowScope.AddItem(
             }
         },
         colors = NavigationBarItemDefaults.colors(
-            selectedIconColor = MaterialTheme.colorScheme.primary,
-            unselectedIconColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
             selectedTextColor = MaterialTheme.colorScheme.primary,
-            unselectedTextColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
             indicatorColor = MaterialTheme.colorScheme.primaryContainer
         )
     )

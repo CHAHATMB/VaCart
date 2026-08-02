@@ -90,6 +90,7 @@ dependencies {
     implementation("org.apache.commons:commons-text:1.9")
 
     implementation("androidx.compose.material:material:1.6.2")
+    implementation("androidx.compose.material:material-icons-extended:1.6.8")
 
     // navigation
     implementation("androidx.navigation:navigation-compose:$nav_version")

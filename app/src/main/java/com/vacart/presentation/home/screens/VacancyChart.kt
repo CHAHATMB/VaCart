@@ -4,75 +4,65 @@ import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.AirlineSeatReclineExtra
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.ConfirmationNumber
+import androidx.compose.material.icons.filled.Train
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import androidx.navigation.compose.rememberNavController
-import com.vacart.model.Cdd
 import com.vacart.model.TrainComposition
 import com.vacart.navigation.Routes
 import com.vacart.presentation.home.HomeEvent
 import com.vacart.presentation.home.HomeState
 import com.vacart.presentation.home.HomeViewModel
 
-
-@Preview(showBackground = true)
-@Composable
-fun PreviewTrainDetailsScreen() {
-//    VaCartTheme {
-        Column {
-//            TrainDetailBox(
-//                TrainComposition(
-//                    "",
-//                    listOf<Cdd>(),
-//                    "",
-//                    ChartStatusResponseDto(1, 1, 0, "", "", ""),
-//                    "",
-//                    "",
-//                    "",
-//                    "",
-//                    "",
-//                    "",
-//                    "",
-//                    "",
-//                    "",
-//                    "",
-//                    ""
-//                )
-//            )
-            val navController = rememberNavController()
-            val cdd = listOf<Cdd>(Cdd("A1", "B1", 0, 12), Cdd("B1", "B1", 1, 12))
-            val trainComposition = TrainComposition(cdd)
-            VacantBirthSection(navController, state = HomeState(trainComposition), event = {})
-            CoachStatusSection(navController, state = HomeState(trainComposition), event = {})
-            LoadingScreen()
-        }
-    }
-//}
-
-@SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel){
+fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel) {
 
     val event = homeViewModel::onEvent
     val state by homeViewModel.state.collectAsState()
@@ -83,40 +73,50 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel){
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                modifier = Modifier.background(Color.Blue),
-                title = { Text("Train Details") },
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        "Train Vacancy Chart",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onPrimary)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 )
             )
         }
-    ) {
-        Column (modifier = Modifier
-            .padding(it)
-            .padding(horizontal = 16.dp)) {
-            // Train Details Section
-            if( state.isLoading){
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .padding(paddingValues)
+                .padding(horizontal = 16.dp)
+                .fillMaxSize()
+        ) {
+            if (state.isLoading) {
                 LoadingScreen()
-            } else if(state.showError){
-                ErrorPage(navController = navController, errorMessage = "Something went wrong! Please try again later.")
-            } else {
-                TrainDetailBox(state.trainComposition!!)
+            } else if (state.showError) {
+                ErrorPage(
+                    navController = navController,
+                    errorMessage = "Something went wrong! Please try again later."
+                )
+            } else state.trainComposition?.let { trainComp ->
+                TrainDetailBox(trainComp)
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Vacant Birth Section
                 VacantBirthSection(navController, state, event)
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Coach Status Section
                 CoachStatusSection(navController, state, event)
             }
         }
@@ -125,98 +125,191 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel){
 
 @Composable
 fun TrainDetailBox(trainComposition: TrainComposition) {
-    Box(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 16.dp)
-            .clip(shape = RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.primaryContainer)
-            .padding(16.dp)
+            .padding(vertical = 8.dp),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
     ) {
-        Column {
-            Text(text = "Train Name: ${trainComposition?.trainName}", style = MaterialTheme.typography.bodyLarge)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Train Number: ${trainComposition?.trainNo}", style = MaterialTheme.typography.bodyLarge)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Charting Station: ${trainComposition?.chartStatusResponseDto?.remoteStationCode}", style = MaterialTheme.typography.bodyLarge)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(text = "Chart Created: ${trainComposition?.chartOneDate}", style = MaterialTheme.typography.bodyLarge)
-        }
-    }
-}
+        Column(modifier = Modifier.padding(18.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Train,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = trainComposition.trainName ?: "Train Details",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
 
-@Composable
-fun VacantBirthSection(navController: NavController, state: HomeState, event: (HomeEvent)-> Unit) {
-    Column {
-        Text(text = "Vacant Birth", style = MaterialTheme.typography.titleLarge)
+            Spacer(modifier = Modifier.height(12.dp))
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-            val vacantBirths = state.trainComposition?.cdd?.flatMap { listOf(it.classCode) }?.distinct()
-            vacantBirths?.forEach { classCode ->
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 8.dp)
-                        .size(48.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.surface,
-                            shape = MaterialTheme.shapes.large
-                        )
-                        .padding(8.dp)
-                        .clickable {
-                            event(HomeEvent.selectClassCode(classCode))
-                            navController.navigate(Routes.BerthDetail.routes)
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(text = classCode, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center )
-                }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                DetailChip(
+                    icon = Icons.Default.ConfirmationNumber,
+                    label = "No",
+                    value = trainComposition.trainNo ?: "-"
+                )
+                DetailChip(
+                    icon = Icons.Default.LocationOn,
+                    label = "Station",
+                    value = trainComposition.chartStatusResponseDto?.remoteStationCode ?: "-"
+                )
+                DetailChip(
+                    icon = Icons.Default.CalendarMonth,
+                    label = "Charted",
+                    value = trainComposition.chartOneDate ?: "-"
+                )
             }
         }
     }
 }
 
 @Composable
-fun CoachStatusSection(navController: NavController, state: HomeState, event: (HomeEvent)-> Unit) {
-    val coaches = state.trainComposition?.cdd?.flatMap { listOf(it) }?.distinct()?: emptyList()
-    Column(modifier = Modifier.padding(bottom = 4.dp)) {
-        Text(text = "Coach Status", style = MaterialTheme.typography.titleLarge)
+fun DetailChip(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Column {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+    }
+}
+
+@Composable
+fun VacantBirthSection(navController: NavController, state: HomeState, event: (HomeEvent) -> Unit) {
+    Column {
+        Text(
+            text = "Class Wise Vacancies",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 94.dp)
-        ){
-            items(coaches.sortedBy { coach -> coach.classCode }) {
-                Column(modifier = Modifier
-                    .padding(8.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable {
-                        event(HomeEvent.selectClassCode(it.classCode))
-                        event(HomeEvent.selectCoach(it.coachName))
-                        navController.navigate(Routes.CoachDetail.routes)
-                    }
-                    .background(color = MaterialTheme.colorScheme.primary)
-                    .padding(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "${it.coachName} | ${it.classCode}",
-                        modifier = Modifier
-                            .fillMaxWidth(),
+        Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
+            val vacantBirths = state.trainComposition?.cdd?.flatMap { listOf(it.classCode) }?.distinct()
+            vacantBirths?.forEach { classCode ->
+                AssistChip(
+                    onClick = {
+                        event(HomeEvent.selectClassCode(classCode))
+                        navController.navigate(Routes.BerthDetail.routes)
+                    },
+                    label = {
+                        Text(
+                            text = classCode,
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.AirlineSeatReclineExtra,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    },
+                    modifier = Modifier.padding(end = 8.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        labelColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        leadingIconContentColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+            }
+        }
+    }
+}
 
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyLarge
+@Composable
+fun CoachStatusSection(navController: NavController, state: HomeState, event: (HomeEvent) -> Unit) {
+    val coaches = state.trainComposition?.cdd?.flatMap { listOf(it) }?.distinct() ?: emptyList()
+    Column(modifier = Modifier.padding(bottom = 4.dp)) {
+        Text(
+            text = "Coach Status Breakdown",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 100.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(coaches.sortedBy { coach -> coach.classCode }) { coach ->
+                OutlinedCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            event(HomeEvent.selectClassCode(coach.classCode))
+                            event(HomeEvent.selectCoach(coach.coachName))
+                            navController.navigate(Routes.CoachDetail.routes)
+                        },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.outlinedCardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer
                     )
-                    Text(
-                        text = "Avl: ${it.vacantBerths} ",
-                        modifier = Modifier
-                            .fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.labelLarge
-                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = coach.coachName,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            text = coach.classCode,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = if (coach.vacantBerths > 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "Avl: ${coach.vacantBerths}",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = if (coach.vacantBerths > 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -235,14 +328,14 @@ fun LoadingScreen() {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            CircularProgressIndicator()
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
 
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "We are fetching train data, please wait...",
+                text = "Fetching train composition and chart data...",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -250,7 +343,6 @@ fun LoadingScreen() {
 
 @Composable
 fun ErrorPage(navController: NavController, errorMessage: String) {
-    // Column to layout error message and actions
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
@@ -260,25 +352,25 @@ fun ErrorPage(navController: NavController, errorMessage: String) {
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.padding(16.dp)
         ) {
-            // Error Message Text
             Text(
-                text = "Oops!",
-                style = TextStyle(fontSize = 32.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer),
+                text = "Unable to load data",
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
             Text(
                 text = errorMessage,
-                style = TextStyle(fontSize = 18.sp, color = MaterialTheme.colorScheme.onPrimaryContainer),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 24.dp)
             )
-            Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedButton(
                 onClick = { navController.popBackStack() },
-                modifier = Modifier.padding(top = 8.dp)
+                shape = RoundedCornerShape(12.dp)
             ) {
-                Text("Go Back", color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Text("Go Back")
             }
         }
     }

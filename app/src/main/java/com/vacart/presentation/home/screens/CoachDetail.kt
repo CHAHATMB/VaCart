@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -20,9 +21,10 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,7 +32,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -81,49 +82,66 @@ fun CoachDetail(navController: NavController, homeViewModel: HomeViewModel = hil
     var showSheet by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.selectedCoach) {
-        println("making api call")
         event(HomeEvent.getCoachComposition())
     }
-    CompositionLocalProvider(LocalViewModel provides homeViewModel){
+    CompositionLocalProvider(LocalViewModel provides homeViewModel) {
         Scaffold(
             topBar = {
-                TopAppBar(
-                    modifier = Modifier.background(Color.Blue),
-                    title = { Text("Coach Composition") },
+                CenterAlignedTopAppBar(
+                    title = {
+                        Text(
+                            "Coach Composition",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    },
                     navigationIcon = {
                         IconButton(onClick = { navController.popBackStack() }) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
                         }
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                     )
                 )
             }
-        ) {
-            Column (modifier = Modifier
-                .padding(it)
-                .padding(horizontal = 16.dp)
-                .fillMaxSize(),
-                verticalArrangement = Arrangement.Center) {
-                // Train Details Section
-                if( state.trainComposition == null ){
-                    Text(modifier = Modifier.align(Alignment.CenterHorizontally), text = "Loading...")
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .padding(paddingValues)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .fillMaxSize()
+            ) {
+                if (state.trainComposition == null) {
+                    Text(
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                        text = "Loading coach visualizer...",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 } else {
-                    Row(verticalAlignment = Alignment.CenterVertically){
-                        Text(text = "Coach : ${state.coachComposition?.coachName}",
-                            fontSize = 24.sp,
-                            fontWeight = FontWeight.SemiBold)
-                        Box(modifier = Modifier
-                            .size(16.dp)
-                            .clickable {
-                                showSheet = true
-                            }, contentAlignment = Alignment.CenterEnd){
-                            Icon(imageVector = Icons.Outlined.Info, contentDescription = "Info")
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    ) {
+                        Text(
+                            text = "Coach: ${state.coachComposition?.coachName}",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(onClick = { showSheet = true }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Info,
+                                contentDescription = "Occupancy Info",
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
                         }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     MyLazyVerticalGrid(state)
                 }
             }
@@ -134,10 +152,7 @@ fun CoachDetail(navController: NavController, homeViewModel: HomeViewModel = hil
             }
         }
     }
-
 }
-
-
 
 @Composable
 fun MyLazyVerticalGrid(state: HomeState) {
@@ -145,37 +160,32 @@ fun MyLazyVerticalGrid(state: HomeState) {
     var selectedBirth by remember { mutableStateOf(0) }
     val totalCoaches = state.coachComposition?.bdd?.size ?: 0
     val data = state.coachComposition?.bdd
-    val divider = if(state.selectedClassCode.is1A()) 4 else if(state.selectedClassCode.is2A()) 6 else 8
-    val items = (1..totalCoaches + (ceil(totalCoaches.toDouble()/divider).toInt()*2)).map{it.toString()} // Sample data
+    val divider = if (state.selectedClassCode.is1A()) 4 else if (state.selectedClassCode.is2A()) 6 else 8
+    val items = (1..totalCoaches + (ceil(totalCoaches.toDouble() / divider).toInt() * 2)).map { it.toString() }
     Column {
-        val fixedCell = if(state.selectedClassCode.is1A()) 3 else if(state.selectedClassCode.is2A()) 4 else 5
+        val fixedCell = if (state.selectedClassCode.is1A()) 3 else if (state.selectedClassCode.is2A()) 4 else 5
         LazyVerticalGrid(
             columns = GridCells.Fixed(fixedCell),
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(8.dp)
         ) {
-            if(state.selectedClassCode.is2A()){
-                itemsIndexed(items){index, item -> // zero based indexing
-                    /** index = 11, ci = 12
-                     *  counter = 2* 2 = 4
-                     *  aI = 12 - 4 = 8
-                     *  aI = 10
-                     * */
-                    var counter = 2 * maxOf(0, ((index+1)-4)/8+1)
-                    if(index<4) counter = 0
-                    var actualIndex = (index+1) - counter
-                    if((index+1)%8 == 4){
+            if (state.selectedClassCode.is2A()) {
+                itemsIndexed(items) { index, _ ->
+                    var counter = 2 * maxOf(0, ((index + 1) - 4) / 8 + 1)
+                    if (index < 4) counter = 0
+                    var actualIndex = (index + 1) - counter
+                    if ((index + 1) % 8 == 4) {
                         actualIndex += 3
                     }
-                    if(index == 3) actualIndex = 5 // special case
-                    if(index in (0..3)){
+                    if (index == 3) actualIndex = 5
+                    if (index in (0..3)) {
                         HorizontalLine()
                     }
 
-                    if(index%4 != 2 && actualIndex <= totalCoaches){
-                        val colorState = getBirthOccupancyColor(data?.get(actualIndex-1), state.stationList)
-                        Column(modifier = Modifier
-                            .then(
+                    if (index % 4 != 2 && actualIndex <= totalCoaches) {
+                        val colorState = getBirthOccupancyColor(data?.get(actualIndex - 1), state.stationList)
+                        Column(
+                            modifier = Modifier.then(
                                 if (index % 4 == 0)
                                     Modifier.leftLine()
                                 else if (index % 4 == 3)
@@ -183,62 +193,59 @@ fun MyLazyVerticalGrid(state: HomeState) {
                                 else Modifier
                             )
                         ) {
-
-                            // Add a horizontal line after every two items
                             if (index % 8 in (4..7)) {
-                                NumberIcon(actualIndex,90f, colorState, onClick = {
-                                    selectedBirth = it-1
+                                NumberIcon(actualIndex, 90f, colorState) {
+                                    selectedBirth = it - 1
                                     showSheet = true
-                                    println("clicking!! $selectedBirth")})
+                                }
                                 HorizontalLine()
                             } else {
-                                NumberIcon(actualIndex, colorState = colorState){
-                                    selectedBirth = it-1
+                                NumberIcon(actualIndex, colorState = colorState) {
+                                    selectedBirth = it - 1
                                     showSheet = true
-                                    println("clicking!! $selectedBirth")}
+                                }
                             }
                         }
                     }
                 }
-            } else
-            itemsIndexed(items) { index, item ->
-                var counter = 2 * maxOf(0, ((index+1)-6)/10+1)
-                if(index<5) counter = 0
-                var actualIndex = (index+1) - counter
-                if((index+1)%10 == 5){
-                    actualIndex += 2
-                }
-                if(index in (0..4)){
-                    HorizontalLine()
-                }
-                val colorState = getBirthOccupancyColor(data?.get(actualIndex-1), state.stationList)
+            } else {
+                itemsIndexed(items) { index, _ ->
+                    var counter = 2 * maxOf(0, ((index + 1) - 6) / 10 + 1)
+                    if (index < 5) counter = 0
+                    var actualIndex = (index + 1) - counter
+                    if ((index + 1) % 10 == 5) {
+                        actualIndex += 2
+                    }
+                    if (index in (0..4)) {
+                        HorizontalLine()
+                    }
+                    val colorState = getBirthOccupancyColor(data?.get(actualIndex - 1), state.stationList)
 
-                if(index%5 != 3){
-                    Column(modifier = Modifier
-                        .then(
-                            if (index % 5 == 0)
-                                Modifier.leftLine()
-                            else if (index % 5 == 4)
-                                Modifier.rightLine()
-                            else Modifier
-                        )
-                    ) {
-
-                        // Add a horizontal line after every two items
-                        if (index % 10 in (5..9)) {
-                            NumberIcon(actualIndex,90f, colorState, onClick = {
-                                selectedBirth = it-1
-                                showSheet = true
-                                println("clicking!! $selectedBirth")})
-                            HorizontalLine()
-                        } else {
-                            NumberIcon(actualIndex, colorState = colorState){selectedBirth = it-1
-                                showSheet = true
-                                println("clicking!! $selectedBirth")}
+                    if (index % 5 != 3) {
+                        Column(
+                            modifier = Modifier.then(
+                                if (index % 5 == 0)
+                                    Modifier.leftLine()
+                                else if (index % 5 == 4)
+                                    Modifier.rightLine()
+                                else Modifier
+                            )
+                        ) {
+                            if (index % 10 in (5..9)) {
+                                NumberIcon(actualIndex, 90f, colorState) {
+                                    selectedBirth = it - 1
+                                    showSheet = true
+                                }
+                                HorizontalLine()
+                            } else {
+                                NumberIcon(actualIndex, colorState = colorState) {
+                                    selectedBirth = it - 1
+                                    showSheet = true
+                                }
+                            }
                         }
                     }
                 }
-
             }
         }
     }
@@ -255,83 +262,69 @@ fun HorizontalLine() {
         modifier = Modifier
             .fillMaxWidth()
             .height(1.dp)
-            .background(Color.Gray)
+            .background(MaterialTheme.colorScheme.outlineVariant)
             .padding(8.dp)
     )
 }
 
-
 @Composable
-fun NumberIcon(number: Int, rotationAngle: Float = 270f, colorState: Int = (1..3).random(), classCode: String = "3A", onClick : (Int)->Unit = {}) {
-    val alignment =
-        if(rotationAngle == 270f ){ Alignment.TopCenter} else {Alignment.BottomCenter}
-    val padding =
-        if(rotationAngle == 270f ){ PaddingValues(top = 12.dp)
-        } else {PaddingValues(bottom = 12.dp)}
+fun NumberIcon(
+    number: Int,
+    rotationAngle: Float = 270f,
+    colorState: Int = (1..3).random(),
+    classCode: String = "3A",
+    onClick: (Int) -> Unit = {}
+) {
+    val alignment = if (rotationAngle == 270f) Alignment.TopCenter else Alignment.BottomCenter
+    val padding = if (rotationAngle == 270f) PaddingValues(top = 12.dp) else PaddingValues(bottom = 12.dp)
     val birthPosition = getSeatName(number, classCode = classCode)
-    val color = when(colorState){
-        1 -> Color(0xFF9effff)
-        2 -> Color(0xFFfffd9e)
-        3 -> Color(0xFFa5ff9e)
-        else -> Color(0xFFf6f7d7)
+    val color = when (colorState) {
+        1 -> Color(0xFF80D4DC).copy(alpha = 0.85f)
+        2 -> Color(0xFFFFF59D).copy(alpha = 0.85f)
+        3 -> Color(0xFFA5D89D).copy(alpha = 0.85f)
+        else -> MaterialTheme.colorScheme.surfaceContainerHigh
     }
 
-    Box(contentAlignment = Alignment.Center, modifier = Modifier
-        .padding(8.dp)
-        .clip(shape = RoundedCornerShape(8.dp))
-        .clickable { onClick(number) }) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .padding(6.dp)
+            .clip(shape = RoundedCornerShape(10.dp))
+            .clickable { onClick(number) }
+    ) {
         Icon(
             painter = painterResource(R.drawable.seat_image),
             contentDescription = null,
             modifier = Modifier
-                .size(56.dp) // Adjust the size as needed
+                .size(56.dp)
                 .graphicsLayer(rotationZ = rotationAngle)
                 .background(color),
             tint = Color.Black
         )
-        Column(modifier = Modifier
-            .align(alignment)
-            .padding(padding)) {
-
+        Column(
+            modifier = Modifier
+                .align(alignment)
+                .padding(padding)
+        ) {
             Text(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
                 text = number.toString(),
-                color = Color.Black, // Text color
-                style = MaterialTheme.typography.bodyMedium // Text style
+                color = Color.Black,
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
             )
             Text(
                 modifier = Modifier.align(Alignment.CenterHorizontally),
                 text = birthPosition,
-                color = Color.Black, // Text color
-                style = MaterialTheme.typography.titleSmall,
-//                modifier = Modifier.size(16.dp)
+                color = Color.Black,
+                style = MaterialTheme.typography.labelSmall
             )
         }
-
     }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun PRe() {
-    BottomSheet(
-        data = Bdd(
-            berthCode = "AB",
-            berthNo = 32,
-            bsd = listOf(Bsd(from = "A", occupancy = false, quota = "as", splitNo = 0, to = "B")),
-            cabinCoupe = "",
-            cabinCoupeNameNo = "",
-            enable = true,
-            from= "String",
-            quotaCntStn= "Any",
-            to= "String"
-        ),
-        onDismiss = {})
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BottomSheet(data : Bdd? = null, onDismiss: () -> Unit) {
+fun BottomSheet(data: Bdd? = null, onDismiss: () -> Unit) {
     val modalBottomSheetState = rememberModalBottomSheetState()
     val viewModel = LocalViewModel.current
     ModalBottomSheet(
@@ -339,51 +332,51 @@ fun BottomSheet(data : Bdd? = null, onDismiss: () -> Unit) {
         sheetState = modalBottomSheetState,
         dragHandle = { BottomSheetDefaults.DragHandle() },
     ) {
-        if(data != null){
-            Column(modifier = Modifier.padding(horizontal = 32.dp)) {
-                Text(text="Berth Number: ${data?.berthNo}",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Medium)
+        if (data != null) {
+            Column(modifier = Modifier.padding(horizontal = 24.dp)) {
+                Text(
+                    text = "Berth Number: ${data.berthNo}",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                )
                 Spacer(modifier = Modifier.height(8.dp))
                 HorizontalLine()
                 Spacer(modifier = Modifier.height(16.dp))
-                if(data.cabinCoupe!=null)
-                    Text(text = "Coupe: ${data.cabinCoupe}",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(end = 4.dp)
+                if (data.cabinCoupe != null)
+                    Text(
+                        text = "Coupe: ${data.cabinCoupe}",
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
                     )
-                if(data.cabinCoupeNameNo != null)
-                    Text(text = "Cabin No: ${data.cabinCoupeNameNo}",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold,
+                if (data.cabinCoupeNameNo != null)
+                    Text(
+                        text = "Cabin No: ${data.cabinCoupeNameNo}",
+                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                         modifier = Modifier.padding(vertical = 4.dp)
                     )
-                Text(text="Occupancy Status: ",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.SemiBold)
-                Column(modifier = Modifier.padding(start = 16.dp, bottom = 4.dp)) {
+                Text(
+                    text = "Occupancy Status",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+                Column(modifier = Modifier.padding(start = 12.dp, top = 8.dp, bottom = 4.dp)) {
                     data.bsd?.map {
-                        val occ = if(it.occupancy) "Occupied" else "Vacant"
-                        Text( text = "${it.splitNo}. ${viewModel.getStationName(it.from)} (${it.from}) -> ${viewModel.getStationName(it.to)} (${it.to})",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Normal
+                        val occ = if (it.occupancy) "Occupied" else "Vacant"
+                        Text(
+                            text = "${it.splitNo}. ${viewModel.getStationName(it.from)} (${it.from}) -> ${viewModel.getStationName(it.to)} (${it.to})",
+                            style = MaterialTheme.typography.bodyMedium
                         )
                         Text(
                             buildAnnotatedString {
-                                append("Occupancy: ")
+                                append("Status: ")
                                 withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                     append(occ)
                                 }
                             },
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Normal,
-                            modifier = Modifier.padding(start = 16.dp, top = 2.dp)
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 12.dp, top = 2.dp)
                         )
-                        Text(text = "Quota: ${it.quota}",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Normal,
-                            modifier = Modifier.padding(start = 16.dp, top = 2.dp)
+                        Text(
+                            text = "Quota: ${it.quota}",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(start = 12.dp, top = 2.dp)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                     }
@@ -392,38 +385,39 @@ fun BottomSheet(data : Bdd? = null, onDismiss: () -> Unit) {
                 Spacer(modifier = Modifier.height(4.dp))
             }
         }
-        Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-            Text(text="Occupancy Indicator",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Medium
+        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+            Text(
+                text = "Occupancy Legend",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
             )
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalLine()
             val indicatorData = listOf(
-                indicator(Color(0xFF9effff), "Occupied for full journey"),
-                indicator(Color(0xFFfffd9e), "Occupied for part journey"),
-                indicator(Color(0xFFa5ff9e), "Vacant for full journey"),
+                indicator(Color(0xFF80D4DC), "Occupied for full journey"),
+                indicator(Color(0xFFFFF59D), "Occupied for part journey"),
+                indicator(Color(0xFFA5D89D), "Vacant for full journey"),
             )
-            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
-                indicatorData  .forEach{
-                    Row(modifier = Modifier.padding(vertical=8.dp), verticalAlignment = Alignment.CenterVertically){
-                        Box(modifier = Modifier
-                            .size(36.dp)
-                            .background(it.color)
-                            .padding(4.dp)
-                            .clip(shape = RoundedCornerShape(4.dp))
-                            .border(border = BorderStroke(1.dp, Color.Black))
+            Column(modifier = Modifier.padding(vertical = 12.dp)) {
+                indicatorData.forEach {
+                    Row(
+                        modifier = Modifier.padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .background(it.color, shape = RoundedCornerShape(6.dp))
+                                .border(border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline))
                         )
-                        Text(text=" -> ${it.description}",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Normal
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = it.description,
+                            style = MaterialTheme.typography.bodyMedium
                         )
                     }
-
                 }
             }
         }
-
     }
 }
 
