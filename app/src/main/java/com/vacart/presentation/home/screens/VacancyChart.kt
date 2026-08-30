@@ -98,27 +98,29 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel) {
             )
         },
         floatingActionButton = {
-            androidx.compose.material3.ExtendedFloatingActionButton(
-                onClick = {
-                    event(HomeEvent.fetchStationList(state.trainNumber))
-                    navController.navigate(Routes.TrainSchedule.routes)
-                },
-                icon = {
-                    Icon(
-                        imageVector = Icons.Default.DateRange,
-                        contentDescription = "Train Schedule"
-                    )
-                },
-                text = {
-                    Text(
-                        text = "Train Schedule",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                    )
-                },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = RoundedCornerShape(16.dp)
-            )
+            if (!state.isLoading && state.trainComposition != null) {
+                androidx.compose.material3.ExtendedFloatingActionButton(
+                    onClick = {
+                        event(HomeEvent.fetchStationList(state.trainNumber))
+                        navController.navigate(Routes.TrainSchedule.routes)
+                    },
+                    icon = {
+                        Icon(
+                            imageVector = Icons.Default.DateRange,
+                            contentDescription = "Train Schedule"
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = "Train Schedule",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        )
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(16.dp)
+                )
+            }
         }
     ) { paddingValues ->
         Column(

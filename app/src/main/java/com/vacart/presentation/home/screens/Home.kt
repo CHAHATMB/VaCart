@@ -110,31 +110,6 @@ fun Home(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
                 )
             )
-        },
-        floatingActionButton = {
-            if (state.trainNumber.isNotBlank()) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        event(HomeEvent.fetchStationList(state.trainNumber))
-                        navController.navigate(Routes.TrainSchedule.routes)
-                    },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Default.DateRange,
-                            contentDescription = "Train Schedule"
-                        )
-                    },
-                    text = {
-                        Text(
-                            text = "Train Schedule",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                        )
-                    },
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    shape = RoundedCornerShape(16.dp)
-                )
-            }
         }
     ) { paddingValues ->
         Column(
