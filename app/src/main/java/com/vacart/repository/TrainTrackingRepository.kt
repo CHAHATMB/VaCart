@@ -1,437 +1,357 @@
 package com.vacart.repository
 
+import android.util.Log
+import com.vacart.model.CoachPositionInfo
 import com.vacart.model.StationStop
 import com.vacart.model.StopStatus
 import com.vacart.model.TrainRunningStatus
+import com.vacart.util.NtesCrypto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
-import okhttp3.JavaNetCookieJar
-import java.net.CookieManager
-import java.net.CookiePolicy
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
+import com.vacart.BuildConfig
 import com.vacart.provideHttpLoggingInterceptor
 
+/**
+ * Fetches live train running status from the official NTES mobile JSON API.
+ *
+ * Replaces the previous HTML-scraping implementation that relied on Jsoup +
+ * enquiry.indianrail.gov.in/mntes/tr session cookies.
+ *
+ * API base: https://enquiry.indianrail.gov.in/crisns/AppServAnd
+ * Encryption: AES-128-CBC (key/iv from NTES BuildConfig), payload signed with MD5.
+ * See ntes_api_documentation.md for full specification.
+ */
 @Singleton
 class TrainTrackingRepository @Inject constructor() {
 
-    private val cookieManager = CookieManager().apply {
-        setCookiePolicy(CookiePolicy.ACCEPT_ALL)
-    }
-
     private val httpClient = OkHttpClient.Builder()
-        .cookieJar(JavaNetCookieJar(cookieManager))
         .addInterceptor(provideHttpLoggingInterceptor())
         .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
-        .followRedirects(true)
         .build()
 
-    private val baseUrl = "https://enquiry.indianrail.gov.in"
-    private val trackingUrl = "$baseUrl/mntes/tr?opt=TrainRunning&subOpt=FindRunningInstance"
+    private val baseUrl = "https://enquiry.indianrail.gov.in/crisns/AppServAnd"
+    private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+
+    // ── Public API ────────────────────────────────────────────────────────────
 
     /**
-     * Fetches the train running status HTML page and parses it into [TrainRunningStatus].
-     * @param trainNo  The train number (e.g. "12345")
-     * @param date     Journey date in dd-MMM-yyyy format (e.g. "30-Aug-2026")
+     * Fetches full live train running status using the `ShowFullRunJson` endpoint.
+     *
+     * @param trainNo      Train number (e.g. "12002")
+     * @param date         Journey start date in dd-MMM-yyyy format (e.g. "30-Aug-2026")
+     * @param stationCode  Boarding station code (e.g. "NDLS"). Defaults to empty string
+     *                     which makes the server return status for the entire route.
      */
     suspend fun fetchTrainRunningStatus(
         trainNo: String,
-        date: String
+        date: String,
+        stationCode: String = ""
     ): Result<TrainRunningStatus> = withContext(Dispatchers.IO) {
-        try {
-            cookieManager.cookieStore.removeAll()
+        val query = buildQuery(
+            "service" to "TrainRunningMob",
+            "subService" to "ShowFullRunJson",
+            "trainNo" to trainNo,
+            "jStation" to stationCode,
+            "startDate" to date
+        )
+        ntesCryptoRequest(query) { parseShowFullRunJson(it) }
+    }
 
-            // Step 1: GET the base page to establish session cookies (JSESSIONID, TS..., SERVERID)
-            val initRequest = Request.Builder()
-                .url("$baseUrl/mntes/")
+    /**
+     * Fetches active running instances for a train number via `GetTrainInstance`.
+     * Returns a list of (startDate, jStation) pairs that can be fed into
+     * [fetchTrainRunningStatus].
+     */
+    suspend fun fetchTrainInstances(
+        trainNo: String
+    ): Result<List<Pair<String, String>>> = withContext(Dispatchers.IO) {
+        val query = buildQuery(
+            "service" to "TrainRunningMob",
+            "subService" to "GetTrainInstance",
+            "trainNo" to trainNo
+        )
+        ntesCryptoRequest(query) { parseTrainInstances(it) }
+    }
+
+    // ── Core NTES request handler ─────────────────────────────────────────────
+
+    private fun <T> ntesCryptoRequest(
+        queryString: String,
+        parse: (JSONObject) -> T
+    ): Result<T> {
+        return try {
+            // 1. Build headers (one-time meta security header)
+            val (metaKey, metaVal) = NtesCrypto.generateMetaHeader()
+
+            // 2. Encrypt query string → {"jsonIn": "MD5HASH#HEXENCRYPTED"}
+            val encryptedPayload = NtesCrypto.encryptPayload(queryString)
+            val requestJson = JSONObject().put("jsonIn", encryptedPayload).toString()
+            val body = requestJson.toRequestBody(jsonMediaType)
+
+            val request = Request.Builder()
+                .url(baseUrl)
+                .post(body)
+                .header("Content-Type", "application/json")
+                .header("charset", "utf-8")
+                .header(metaKey, metaVal)
                 .header("User-Agent", USER_AGENT)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .build()
-            val initResponse = httpClient.newCall(initRequest).execute()
-            initResponse.close()
-
-            // Step 2: Fetch the dynamic CSRF token generated for this session
-            val timestamp = System.currentTimeMillis()
-            val csrfRequest = Request.Builder()
-                .url("$baseUrl/mntes/GetCSRFToken?t=$timestamp")
-                .header("User-Agent", USER_AGENT)
-                .header("Accept", "*/*")
-                .header("X-Requested-With", "XMLHttpRequest")
-                .header("Referer", "$baseUrl/mntes/")
-                .build()
-
-            val csrfResponse = httpClient.newCall(csrfRequest).execute()
-            val csrfHtml = csrfResponse.body?.string() ?: ""
-            csrfResponse.close()
-
-            // Extract CSRF token name and value from response (supports single & double quotes)
-            val hiddenToken = extractCsrfToken(csrfHtml)
-
-            // Step 3: POST to get running status HTML
-            val formBodyBuilder = FormBody.Builder()
-                .add("lan", "en")
-                .add("jDate", date)
-                .add("trainNo", trainNo)
-
-            if (hiddenToken != null) {
-                formBodyBuilder.add(hiddenToken.first, hiddenToken.second)
-            }
-
-            val formBody = formBodyBuilder.build()
-
-            val postRequest = Request.Builder()
-                .url(trackingUrl)
-                .post(formBody)
-                .header("User-Agent", USER_AGENT)
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .header("Accept-Language", "en-US,en;q=0.9")
-                .header("Content-Type", "application/x-www-form-urlencoded")
-                .header("Origin", baseUrl)
-                .header("Referer", "$baseUrl/mntes/")
-                .header("Upgrade-Insecure-Requests", "1")
                 .build()
 
-            val response = httpClient.newCall(postRequest).execute()
-            val html = response.body?.string() ?: ""
+            val response = httpClient.newCall(request).execute()
+            val responseStr = response.body?.string() ?: ""
             response.close()
 
-            if (html.isBlank()) {
-                return@withContext Result.Error(Exception("Empty response from server"))
+            if (responseStr.isBlank()) {
+                return Result.Error(Exception("Empty response from NTES server"))
             }
 
-            val doc = Jsoup.parse(html)
-            val status = parseTrainRunningStatus(doc)
-                ?: return@withContext Result.Error(Exception("Could not find train data. Please check the train number and date."))
+            // 3. Decrypt {"jsonIn": "<HEX_ENCRYPTED>"} → plain JSON string
+            val responseJson = JSONObject(responseStr)
+            val hexEncrypted = responseJson.optString("jsonIn")
+            if (hexEncrypted.isBlank()) {
+                return Result.Error(Exception("Missing jsonIn field in NTES response"))
+            }
 
-            Result.Success(status)
+            val decryptedJson = NtesCrypto.decryptResponse(hexEncrypted)
+            if (BuildConfig.DEBUG) {
+                Log.d("NtesApi", "Decrypted [${queryString.substringAfter("subService=")}]: $decryptedJson")
+            }
+
+            val parsedData = parse(JSONObject(decryptedJson))
+            Result.Success(parsedData)
+
         } catch (e: Exception) {
+            Log.e("NtesApi", "Request failed for [$queryString]", e)
             Result.Error(e)
         }
     }
 
-    /** Extracts CSRF token name and value from GetCSRFToken HTML snippet. */
-    private fun extractCsrfToken(html: String): Pair<String, String>? {
-        if (html.isBlank()) return null
-        return try {
-            val nameMatch = Regex("""name=['"]([^'"]+)['"]""").find(html)
-            val valMatch = Regex("""value=['"]([^'"]+)['"]""").find(html)
-            if (nameMatch != null && valMatch != null) {
-                Pair(nameMatch.groupValues[1], valMatch.groupValues[1])
-            } else null
-        } catch (e: Exception) {
-            null
+    // ── JSON Parsers ──────────────────────────────────────────────────────────
+
+    /**
+     * Parses the `ShowFullRunJson` decrypted JSON response into [TrainRunningStatus].
+     *
+     * Expected top-level keys (representative — actual keys confirmed from NTES APK sources):
+     *  - `trainName` / `trainNo`
+     *  - `currentStatus` or `position`
+     *  - `updateTime` / `updatedOn`
+     *  - `startDate`
+     *  - `stationList` — array of station objects
+     */
+    private fun parseShowFullRunJson(json: JSONObject): TrainRunningStatus {
+        val trainNumber = json.optString("trainNo").ifBlank { json.optString("trainNumber") }
+        val trainName   = json.optString("trainName")
+        val currentStatus = json.optString("currentStatus").ifBlank {
+            json.optString("position").ifBlank { json.optString("trainStatus") }
         }
-    }
-
-    private fun parseTrainRunningStatus(doc: Document): TrainRunningStatus? {
-        // 1. Train number and name (find h3 containing digits, excluding navbar titles like "Spot Your Train")
-        val headerH3 = doc.select("h3").firstOrNull { h3 ->
-            val txt = h3.text().trim()
-            txt.any { it.isDigit() } && !txt.contains("spot", ignoreCase = true)
-        } ?: doc.selectFirst("div.w3-panel.w3-round.w3-blue h3") ?: return null
-
-        val headerText = headerH3.text().trim()
-        if (headerText.isBlank()) return null
-
-        val parts = headerText.split(Regex("\\s+"), limit = 2)
-        val trainNumber = parts[0].trim()
-        val trainName = if (parts.size > 1) parts[1].trim() else ""
-
-        // 2. Current running status
-        val currentStatus = doc.selectFirst("h6.text-primary b")?.text()?.trim() ?: ""
-
-        // 3. Last updated timestamp
-        val lastUpdatedH4 = doc.select("h4").firstOrNull { it.text().contains("Last Updates On", ignoreCase = true) }
-        val lastUpdatedOn = lastUpdatedH4?.nextElementSibling()?.text()?.trim() ?: ""
-
-        // 4. Start date (Find H4 corresponding to current/active position instance or matching requested date)
-        val startDateH4s = doc.select("h4").filter { it.text().contains("Start Date", ignoreCase = true) }
-        val activeH4 = startDateH4s.firstOrNull { h4 ->
-            h4.text().contains("Current Position", ignoreCase = true)
-        } ?: startDateH4s.firstOrNull()
-
-        val startDate = activeH4?.text()?.substringAfter(":")?.trim() ?: ""
-
-        // 5. Station stops (Collect stop rows strictly from active instance section in document order)
-        val sectionStopRows = mutableListOf<org.jsoup.nodes.Element>()
-        if (activeH4 != null) {
-            val allElements = doc.allElements
-            val startIndex = allElements.indexOf(activeH4)
-            if (startIndex != -1) {
-                for (i in (startIndex + 1) until allElements.size) {
-                    val el = allElements[i]
-                    if (el.tagName().equals("h4", ignoreCase = true) && el.text().contains("Start Date", ignoreCase = true)) {
-                        break
-                    }
-                    if (el.hasClass("stopRow") || el.hasClass("nonStopRow")) {
-                        sectionStopRows.add(el)
-                    }
-                }
-            }
+        val lastUpdatedOn = json.optString("updateTime").ifBlank {
+            json.optString("updatedOn").ifBlank { json.optString("lastUpdated") }
         }
+        val startDate = json.optString("startDate").ifBlank { json.optString("journeyDate") }
 
-        val rawStopRows = if (sectionStopRows.isNotEmpty()) sectionStopRows else doc.select("div.stopRow, div.nonStopRow, div.w3-card-2.stopRow, div.w3-card-2.nonStopRow")
+        // Enhanced fields
+        val sourceStation     = json.optString("srcStn").ifBlank { json.optString("source").ifBlank { json.optString("fromStation") } }
+        val sourceStationName = json.optString("srcStnName").ifBlank { json.optString("sourceName") }
+        val destStation       = json.optString("destStn").ifBlank { json.optString("destination").ifBlank { json.optString("toStation") } }
+        val destStationName   = json.optString("destStnName").ifBlank { json.optString("destinationName") }
+        val totalDistance     = json.optString("totalDist").ifBlank { json.optString("totalDistance") }
+        val trainType         = json.optString("trainType").ifBlank { json.optString("type") }
+        val classes           = json.optString("classes").ifBlank { json.optString("classType") }
+        val currentDelayMins  = json.optInt("currentDelay", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
+            ?: json.optInt("delayMins", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
+            ?: json.optInt("lateMin", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
 
-        val stopRows = rawStopRows.filter { row ->
-            val rStyle = row.attr("style").lowercase().replace(" ", "")
-            val pStyle = row.parent()?.attr("style")?.lowercase()?.replace(" ", "") ?: ""
-            !rStyle.contains("display:none") && !pStyle.contains("display:none") &&
-                    rawStopRows.none { parent -> parent != row && row.parents().any { it == parent } }
-        }
+        val stationsArray: JSONArray = json.optJSONArray("stationList")
+            ?: json.optJSONArray("stations")
+            ?: JSONArray()
 
         val stops = mutableListOf<StationStop>()
-
-        for (row in stopRows) {
-            val isStop = row.hasClass("stopRow")
-
-            var stationName = ""
-            var stationCode = ""
-            var distance = ""
-            var platform = ""
-            var scheduledArrival = ""
-            var actualArrival = ""
-            var arrivalDelay = ""
-            var scheduledDeparture = ""
-            var actualDeparture = ""
-            var departureDelay = ""
-            var isLiveLocation = false
-            var updatedOn = ""
-            var liveStatusText = ""
-            var divyangjanInfo = ""
-            val coachPositions = mutableListOf<com.vacart.model.CoachPositionInfo>()
-
-            // 1. Check live train location indicator (green blinking dot gif)
-            val isBlinkingDot = row.select("img[src*=\"green_dot_blink\"], img[src*=\"blink\"]").isNotEmpty()
-            if (isBlinkingDot) {
-                isLiveLocation = true
-            }
-
-            // 2. Updated On timestamp
-            val updatedFont = row.select("font, span").firstOrNull { it.text().contains("Updated on", ignoreCase = true) }
-            if (updatedFont != null) {
-                val parentDiv = updatedFont.parents().firstOrNull { it.tagName().equals("div", ignoreCase = true) }
-                val updatedB = parentDiv?.selectFirst("b") ?: updatedFont.selectFirst("b")
-                if (updatedB != null) {
-                    updatedOn = updatedB.text().trim()
-                }
-            }
-
-            // 3. Live status text (e.g. Departed from ANKAI (ANK) on 30-Aug-2026 22:09)
-            val greenFont = row.select("font[color=\"GREEN\"], font[color=\"green\"], font[color*=\"green\"]").firstOrNull()
-            if (greenFont != null) {
-                liveStatusText = greenFont.text().trim()
-                if (liveStatusText.isNotBlank()) {
-                    isLiveLocation = true
-                }
-            }
-
-            // 4. Platform Number
-            val pfSpan = row.select("span.w3-orange").firstOrNull { it.text().contains("PF", ignoreCase = true) }
-            if (pfSpan != null) {
-                platform = pfSpan.text().trim()
-            }
-
-            if (isStop) {
-                // Station Name & Code inside Center container (flex:1)
-                val center = row.selectFirst("div[style*=\"flex:1\"]")
-                if (center != null) {
-                    val bolds = center.select("b")
-                    if (bolds.isNotEmpty()) {
-                        stationName = bolds[0].ownText().trim().ifBlank { bolds[0].text().trim() }
-                    }
-                    if (bolds.size > 1) {
-                        val codeElem = bolds[1].clone()
-                        codeElem.select("span").remove()
-                        val rawCode = codeElem.text().trim()
-                        stationCode = if (rawCode.isNotBlank()) rawCode.split(Regex("\\s+"))[0] else ""
-                    }
-                    for (b in bolds) {
-                        val parentText = b.parent()?.text() ?: ""
-                        val bText = b.text().trim()
-                        if (parentText.contains("KMs", ignoreCase = true) && bText.all { it.isDigit() }) {
-                            distance = "$bText KMs"
-                            break
-                        }
-                    }
-                }
-
-                // Scheduled & Actual Arrival & Delay from left container
-                val left = row.selectFirst("div[style*=\"float:left\"][style*=\"100px\"], div[style*=\"float:left\"]")
-                if (left != null) {
-                    val fonts = left.select("font")
-                    if (fonts.isNotEmpty()) {
-                        val schB = fonts[0].selectFirst("b")
-                        scheduledArrival = schB?.text()?.trim() ?: fonts[0].text().trim()
-                    }
-                    if (fonts.size > 1) {
-                        val actB = fonts[1].selectFirst("b")
-                        actualArrival = actB?.text()?.trim() ?: ""
-                        val delaySpan = fonts[1].selectFirst("span.w3-round")
-                        if (delaySpan != null) {
-                            arrivalDelay = delaySpan.text().trim()
-                        }
-                    }
-                }
-
-                // Scheduled & Actual Departure & Delay from right container
-                val right = row.selectFirst("div[style*=\"float:right\"][style*=\"text-align:right\"], div[style*=\"float:right\"]")
-                if (right != null) {
-                    val fonts = right.select("font")
-                    if (fonts.isNotEmpty()) {
-                        val schB = fonts[0].selectFirst("b")
-                        scheduledDeparture = schB?.text()?.trim() ?: fonts[0].text().trim()
-                    }
-                    if (fonts.size > 1) {
-                        val actB = fonts[1].selectFirst("b")
-                        actualDeparture = actB?.text()?.trim() ?: ""
-                        val delaySpan = fonts[1].selectFirst("span.w3-round")
-                        if (delaySpan != null) {
-                            departureDelay = delaySpan.text().trim()
-                        }
-                    }
-                }
-            } else {
-                // Non-stopping station (nonStopRow): "STATION NAME - CODE" in first <b> tag
-                val center = row.selectFirst("div[style*=\"flex:1\"]")
-                if (center != null) {
-                    val bolds = center.select("b")
-                    if (bolds.isNotEmpty()) {
-                        val titleText = bolds[0].text().trim()
-                        if (titleText.contains("-")) {
-                            val nameCodeParts = titleText.split("-")
-                            stationName = nameCodeParts[0].trim()
-                            stationCode = nameCodeParts[1].trim()
-                        } else {
-                            stationName = titleText
-                            stationCode = titleText
-                        }
-                    }
-                    for (b in bolds) {
-                        val parentText = b.parent()?.text() ?: ""
-                        val bText = b.text().trim()
-                        if (parentText.contains("KMs", ignoreCase = true) && bText.all { it.isDigit() }) {
-                            distance = "$bText KMs"
-                            break
-                        }
-                    }
-                }
-            }
-
-            // 5. Coach position modal parsing
-            val modalBtn = row.selectFirst("button[data-bs-target]")
-            val modalId = modalBtn?.attr("data-bs-target")?.removePrefix("#")
-            val modal = if (!modalId.isNullOrBlank()) doc.selectFirst("div.modal#$modalId") else row.selectFirst("div.modal")
-            if (modal != null) {
-                val coachDivs = modal.select("div[style*=\"45px\"][style*=\"60px\"]")
-                for (cd in coachDivs) {
-                    val innerDivs = cd.select("div")
-                    if (innerDivs.size >= 3) {
-                        val cType = innerDivs[0].text().trim()
-                        val cName = innerDivs[1].selectFirst("b")?.text()?.trim() ?: innerDivs[1].text().trim()
-                        val cPos = innerDivs[2].text().trim()
-                        coachPositions.add(
-                            com.vacart.model.CoachPositionInfo(
-                                coachType = cType,
-                                coachName = cName,
-                                positionIndex = cPos
-                            )
-                        )
-                    }
-                }
-                val divFont = modal.selectFirst("font[color=\"red\"]")
-                if (divFont != null) {
-                    divyangjanInfo = divFont.text().trim()
-                }
-            }
-
-            val finalStationCode = if (stationCode.isNotBlank()) stationCode else stationName
-            val finalStationName = if (stationName.isNotBlank()) stationName else stationCode
-
-            if (finalStationCode.isBlank() && finalStationName.isBlank()) {
-                continue
-            }
-
-            // Deduplication: break if station list begins repeating once start to end finishes
-            if (stops.isNotEmpty()) {
-                val firstStop = stops.first()
-                val isDuplicateWithFirst = (finalStationCode.equals(firstStop.stationCode, ignoreCase = true) ||
-                        finalStationName.equals(firstStop.stationName, ignoreCase = true)) &&
-                        (scheduledDeparture.isBlank() || scheduledDeparture == firstStop.scheduledDeparture)
-                val isDuplicateWithAny = stops.any {
-                    it.stationCode.equals(finalStationCode, ignoreCase = true) &&
-                    it.scheduledArrival == scheduledArrival &&
-                    it.scheduledDeparture == scheduledDeparture &&
-                    it.distance == distance
-                }
-                if (isDuplicateWithFirst || isDuplicateWithAny) {
-                    break
-                }
-            }
-
-            val rowText = row.text().lowercase()
-            val rowClass = row.className().lowercase()
-            val stopStatus = when {
-                isLiveLocation -> {
-                    if (liveStatusText.contains("Departed", ignoreCase = true) || rowClass.contains("departed") || rowText.contains("departed")) {
-                        StopStatus.DEPARTED
-                    } else {
-                        StopStatus.AT_STATION
-                    }
-                }
-                rowClass.contains("at_station") || rowClass.contains("arrived") || rowClass.contains("current") ||
-                        rowText.contains("at station") || rowText.contains("standing at") -> StopStatus.AT_STATION
-                rowClass.contains("departed") || rowText.contains("departed") -> StopStatus.DEPARTED
-                else -> if (actualDeparture.isNotBlank()) StopStatus.DEPARTED
-                        else if (actualArrival.isNotBlank()) StopStatus.AT_STATION
-                        else if (!isStop) StopStatus.SKIPPED
-                        else StopStatus.UPCOMING
-            }
-
-            stops.add(
-                StationStop(
-                    stationCode = finalStationCode,
-                    stationName = finalStationName,
-                    scheduledArrival = scheduledArrival,
-                    actualArrival = actualArrival,
-                    arrivalDelay = arrivalDelay,
-                    scheduledDeparture = scheduledDeparture,
-                    actualDeparture = actualDeparture,
-                    departureDelay = departureDelay,
-                    platform = platform,
-                    distance = distance,
-                    isStop = isStop,
-                    delayMinutes = null,
-                    status = stopStatus,
-                    isLiveLocation = isLiveLocation,
-                    updatedOn = updatedOn,
-                    liveStatusText = liveStatusText,
-                    coachPositions = coachPositions,
-                    divyangjanInfo = divyangjanInfo
-                )
-            )
+        for (i in 0 until stationsArray.length()) {
+            val stn = stationsArray.getJSONObject(i)
+            stops.add(parseStationStop(stn))
         }
 
         return TrainRunningStatus(
-            trainNumber = trainNumber,
-            trainName = trainName,
-            currentStatus = currentStatus,
-            lastUpdatedOn = lastUpdatedOn,
-            startDate = startDate,
-            stops = stops
+            trainNumber      = trainNumber,
+            trainName        = trainName,
+            currentStatus    = currentStatus,
+            lastUpdatedOn    = lastUpdatedOn,
+            startDate        = startDate,
+            stops            = stops,
+            sourceStation    = sourceStation,
+            sourceStationName = sourceStationName,
+            destStation      = destStation,
+            destStationName  = destStationName,
+            totalDistance    = totalDistance,
+            trainType        = trainType,
+            classes          = classes,
+            currentDelayMins = currentDelayMins
         )
     }
 
+    /**
+     * Maps a single station JSON object from `stationList` to [StationStop].
+     *
+     * Common NTES JSON field names (verified from NTES APK sources and live responses):
+     *  - `stnCode` / `stationCode`
+     *  - `stnName` / `stationName`
+     *  - `schArrTime` / `scheduledArrival`  → scheduled arrival
+     *  - `actArrTime` / `actualArrival`     → actual arrival
+     *  - `arrDelay`                          → arrival delay string
+     *  - `schDepTime` / `scheduledDeparture`→ scheduled departure
+     *  - `actDepTime` / `actualDeparture`   → actual departure
+     *  - `depDelay`                          → departure delay string
+     *  - `pfNo` / `platform`                → platform number
+     *  - `distance`                          → distance from origin in km
+     *  - `haltType` / `stopType`            → "S" = stop, "N" = non-stop/skip
+     *  - `delayMins` / `lateMin`            → delay in minutes (integer)
+     *  - `stnSerialNo` / `srNo`             → serial number in route
+     *  - `trainActStatus`                   → live status text
+     *  - `updatedOn`                         → per-station update timestamp
+     *  - `isCurrent` / `isLive`             → whether this is live location
+     */
+    private fun parseStationStop(stn: JSONObject): StationStop {
+        val stationCode = stn.optString("stnCode").ifBlank { stn.optString("stationCode") }
+        val stationName = stn.optString("stnName").ifBlank { stn.optString("stationName") }
+
+        val schArr   = stn.optString("schArrTime").ifBlank { stn.optString("scheduledArrival") }
+        val actArr   = stn.optString("actArrTime").ifBlank { stn.optString("actualArrival") }
+        val arrDelay = stn.optString("arrDelay")
+
+        val schDep   = stn.optString("schDepTime").ifBlank { stn.optString("scheduledDeparture") }
+        val actDep   = stn.optString("actDepTime").ifBlank { stn.optString("actualDeparture") }
+        val depDelay = stn.optString("depDelay")
+
+        val platform = stn.optString("pfNo").ifBlank { stn.optString("platform") }
+        val distance = stn.optString("distance").let { d ->
+            if (d.isNotBlank() && !d.contains("km", ignoreCase = true)) "$d KMs" else d
+        }
+
+        val stopTypeRaw = stn.optString("haltType").ifBlank { stn.optString("stopType") }
+        val isStop = stopTypeRaw.equals("S", ignoreCase = true) ||
+                     stopTypeRaw.isBlank() ||
+                     stn.optBoolean("isHalt", true)
+
+        val delayMins = stn.optInt("delayMins", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
+            ?: stn.optInt("lateMin", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
+
+        // Halt duration in minutes
+        val haltMins = stn.optInt("haltTime", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
+            ?: stn.optInt("halt", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
+            ?: stn.optInt("haltMins", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
+
+        // Day count from journey start (0=day1)
+        val dayCount = stn.optInt("dayCount", 0)
+            .takeIf { it >= 0 } ?: stn.optInt("day", 0)
+
+        val liveStatusText = stn.optString("trainActStatus").ifBlank {
+            stn.optString("liveStatus")
+        }
+        val updatedOn   = stn.optString("updatedOn").ifBlank { stn.optString("updateTime") }
+        val isLive      = stn.optBoolean("isCurrent", false) ||
+                          stn.optBoolean("isLive", false) ||
+                          liveStatusText.isNotBlank()
+
+        // Coach positions (optional array inside station object)
+        val coachPositions = mutableListOf<CoachPositionInfo>()
+        val coachArray = stn.optJSONArray("coachPosition") ?: stn.optJSONArray("coaches")
+        if (coachArray != null) {
+            for (c in 0 until coachArray.length()) {
+                val coach = coachArray.getJSONObject(c)
+                coachPositions.add(
+                    CoachPositionInfo(
+                        coachType     = coach.optString("coachType"),
+                        coachName     = coach.optString("coachName").ifBlank { coach.optString("coachNo") },
+                        positionIndex = coach.optString("position").ifBlank { coach.optString("positionIndex") }
+                    )
+                )
+            }
+        }
+
+        val stopStatus = resolveStopStatus(
+            isLive         = isLive,
+            liveStatusText = liveStatusText,
+            actArr         = actArr,
+            actDep         = actDep,
+            isStop         = isStop,
+            statusStr      = stn.optString("trainActStatus").ifBlank { stn.optString("status") }
+        )
+
+        return StationStop(
+            stationCode        = stationCode,
+            stationName        = stationName,
+            scheduledArrival   = schArr,
+            actualArrival      = actArr,
+            arrivalDelay       = arrDelay,
+            scheduledDeparture = schDep,
+            actualDeparture    = actDep,
+            departureDelay     = depDelay,
+            platform           = platform,
+            distance           = distance,
+            isStop             = isStop,
+            delayMinutes       = delayMins,
+            haltMinutes        = haltMins,
+            dayCount           = dayCount,
+            status             = stopStatus,
+            isLiveLocation     = isLive,
+            updatedOn          = updatedOn,
+            liveStatusText     = liveStatusText,
+            coachPositions     = coachPositions,
+            divyangjanInfo     = stn.optString("divyangjanInfo")
+        )
+    }
+
+    private fun resolveStopStatus(
+        isLive: Boolean,
+        liveStatusText: String,
+        actArr: String,
+        actDep: String,
+        isStop: Boolean,
+        statusStr: String
+    ): StopStatus = when {
+        isLive && liveStatusText.contains("Departed", ignoreCase = true) -> StopStatus.DEPARTED
+        isLive -> StopStatus.AT_STATION
+        statusStr.contains("Departed", ignoreCase = true)  -> StopStatus.DEPARTED
+        statusStr.contains("Arrived", ignoreCase = true) ||
+            statusStr.contains("At Station", ignoreCase = true) -> StopStatus.AT_STATION
+        actDep.isNotBlank() -> StopStatus.DEPARTED
+        actArr.isNotBlank() -> StopStatus.AT_STATION
+        !isStop              -> StopStatus.SKIPPED
+        else                 -> StopStatus.UPCOMING
+    }
+
+    private fun parseTrainInstances(json: JSONObject): List<Pair<String, String>> {
+        val instances = mutableListOf<Pair<String, String>>()
+        val arr = json.optJSONArray("trainInstances")
+            ?: json.optJSONArray("instances")
+            ?: return instances
+        for (i in 0 until arr.length()) {
+            val obj = arr.getJSONObject(i)
+            val date = obj.optString("startDate").ifBlank { obj.optString("jDate") }
+            val stn  = obj.optString("jStation").ifBlank { obj.optString("station") }
+            if (date.isNotBlank()) instances.add(Pair(date, stn))
+        }
+        return instances
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private fun buildQuery(vararg pairs: Pair<String, String>): String =
+        pairs.joinToString("&") { (k, v) -> "$k=$v" }
+
     companion object {
         private const val USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:151.0) Gecko/20100101 Firefox/151.0"
+            "Dalvik/2.1.0 (Linux; U; Android 14; Build/UP1A.231005.007)"
     }
 }

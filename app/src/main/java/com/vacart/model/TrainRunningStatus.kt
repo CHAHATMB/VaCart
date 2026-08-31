@@ -1,4 +1,4 @@
-package com.vacart.model
+﻿package com.vacart.model
 
 data class TrainRunningStatus(
     val trainNumber: String,
@@ -6,7 +6,16 @@ data class TrainRunningStatus(
     val currentStatus: String,
     val lastUpdatedOn: String,
     val startDate: String,
-    val stops: List<StationStop>
+    val stops: List<StationStop>,
+    // Enhanced fields from NTES JSON API
+    val sourceStation: String = "",        // Origin station code
+    val sourceStationName: String = "",    // Origin station full name
+    val destStation: String = "",          // Destination station code
+    val destStationName: String = "",      // Destination full name
+    val totalDistance: String = "",        // Total route distance in km
+    val currentDelayMins: Int? = null,     // Current overall delay in minutes
+    val trainType: String = "",            // e.g. "Rajdhani", "Mail", "Express"
+    val classes: String = "",             // e.g. "1A,2A,3A,SL"
 )
 
 data class CoachPositionInfo(
@@ -28,6 +37,8 @@ data class StationStop(
     val distance: String = "",
     val isStop: Boolean = true,
     val delayMinutes: Int? = null,
+    val haltMinutes: Int? = null,          // Scheduled halt duration in minutes
+    val dayCount: Int = 0,                 // Day offset from journey start (0=day1, 1=day2...)
     val status: StopStatus = StopStatus.UPCOMING,
     val isLiveLocation: Boolean = false,
     val updatedOn: String = "",
@@ -42,4 +53,3 @@ enum class StopStatus {
     UPCOMING,
     SKIPPED
 }
-

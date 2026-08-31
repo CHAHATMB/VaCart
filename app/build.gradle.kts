@@ -89,7 +89,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1-Beta")
     implementation("com.squareup.okhttp3:logging-interceptor:4.9.1")
     implementation("com.squareup.okhttp3:okhttp-urlconnection:4.9.1")
-    implementation("org.jsoup:jsoup:1.17.2")
+    // okhttp-urlconnection & jsoup removed: HTML scraping replaced by NTES JSON API
     implementation("org.apache.commons:commons-text:1.9")
 
     implementation("androidx.compose.material:material:1.6.2")
