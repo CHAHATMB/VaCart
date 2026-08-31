@@ -13,7 +13,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -29,7 +28,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -681,42 +682,44 @@ private fun TrainResultStep(
             }
         }
 
-        // ── Route segments ─────────────────────────────────────────────────
-        itemsIndexed(segments) { index, segment ->
-            val isPassingExpanded  = expandedPassingIndices.contains(index)
-            val isStationExpanded  = expandedStationIndices.contains(index)
-            val isFirst            = index == 0
-            val isLast             = index == segments.lastIndex
-            val isCurrentStation   = (currentPosition is TrainCurrentPosition.AtStation &&
-                currentPosition.segmentIndex == index) || segment.stoppingStation.isLiveLocation
+        // ── Route segments (keyed for efficient recomposition) ─────────────
+        segments.forEachIndexed { index, segment ->
             val isTrainInTransitAfterThis = currentPosition is TrainCurrentPosition.InTransit &&
                 currentPosition.fromSegmentIndex == index
 
-            RouteSegmentItem(
-                segment           = segment,
-                isFirst           = isFirst,
-                isLast            = isLast && !isTrainInTransitAfterThis,
-                isCurrentStation  = isCurrentStation,
-                isPassingExpanded = isPassingExpanded,
-                isStationExpanded = isStationExpanded,
-                showBottomLine    = !isLast || isTrainInTransitAfterThis,
-                onTogglePassing   = {
-                    if (segment.passingStations.isNotEmpty()) {
-                        if (isPassingExpanded) expandedPassingIndices.remove(index) else expandedPassingIndices.add(index)
+            item(key = "stop_${segment.stoppingStation.stationCode}_$index") {
+                val isPassingExpanded  = expandedPassingIndices.contains(index)
+                val isStationExpanded  = expandedStationIndices.contains(index)
+
+                RouteSegmentItem(
+                    segment           = segment,
+                    isFirst           = index == 0,
+                    isLast            = index == segments.lastIndex && !isTrainInTransitAfterThis,
+                    isCurrentStation  = (currentPosition is TrainCurrentPosition.AtStation &&
+                        currentPosition.segmentIndex == index) || segment.stoppingStation.isLiveLocation,
+                    isPassingExpanded = isPassingExpanded,
+                    isStationExpanded = isStationExpanded,
+                    showBottomLine    = index != segments.lastIndex || isTrainInTransitAfterThis,
+                    onTogglePassing   = {
+                        if (segment.passingStations.isNotEmpty()) {
+                            if (isPassingExpanded) expandedPassingIndices.remove(index) else expandedPassingIndices.add(index)
+                        }
+                    },
+                    onToggleStation   = {
+                        if (isStationExpanded) expandedStationIndices.remove(index) else expandedStationIndices.add(index)
                     }
-                },
-                onToggleStation   = {
-                    if (isStationExpanded) expandedStationIndices.remove(index) else expandedStationIndices.add(index)
-                }
-            )
+                )
+            }
 
             if (isTrainInTransitAfterThis) {
-                InTransitTimelineItem(
-                    fromStation = segment.stoppingStation,
-                    toStation   = (currentPosition as TrainCurrentPosition.InTransit).toStation,
-                    delayMins   = status.currentDelayMins,
-                    isLastBeforeNext = true
-                )
+                item(key = "transit_$index") {
+                    InTransitTimelineItem(
+                        fromStation = segment.stoppingStation,
+                        toStation   = (currentPosition as TrainCurrentPosition.InTransit).toStation,
+                        delayMins   = status.currentDelayMins,
+                        isLastBeforeNext = true
+                    )
+                }
             }
         }
 
@@ -1043,8 +1046,8 @@ private fun DelayPill(delayMins: Int) {
 }
 
 // ─── Route segment item ────────────────────────────────────────────────────────
-// Timeline uses an IntrinsicSize.Min row so the vertical line stretches to match
-// whatever the card height is – this keeps the line perfectly connected.
+// Timeline lines are drawn via drawBehind (single-pass measurement) and only the
+// dot / train icon is placed as a composable – eliminates IntrinsicSize double-measure.
 
 @Composable
 private fun RouteSegmentItem(
@@ -1082,34 +1085,33 @@ private fun RouteSegmentItem(
             .padding(bottom = if (isLast) 0.dp else 6.dp)
     ) {
         // ── Main stop row (timeline dot + card) ───────────────────────────
-        // height(IntrinsicSize.Min) lets the timeline Column know the Row's
-        // height so weight(1f) on the bottom connector line fills it exactly.
+        // Timeline lines are drawn in drawBehind for single-pass measurement.
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(IntrinsicSize.Min),
+                .drawBehind {
+                    val lineX = 14.dp.toPx()
+                    val strokeW = 2.dp.toPx()
+                    val topSpace = 10.dp.toPx()
+                    val dotH = if (isLive) 24.dp.toPx() else 12.dp.toPx()
+                    val dotBottom = topSpace + dotH
+                    // Top connector
+                    if (!isFirst) {
+                        drawLine(lineColor, Offset(lineX, 0f), Offset(lineX, topSpace), strokeW)
+                    }
+                    // Bottom connector
+                    if (showBottomLine || passingStations.isNotEmpty()) {
+                        drawLine(lineColor, Offset(lineX, dotBottom), Offset(lineX, size.height), strokeW)
+                    }
+                },
             verticalAlignment = Alignment.Top
         ) {
-            // ── Timeline column (dot + connecting lines) ──────────────────
-            // The bottom line uses weight(1f) to stretch from dot to the
-            // card's bottom edge — keeping the timeline perfectly connected.
+            // ── Timeline column (dot only) ────────────────────────────────
             Column(
-                modifier = Modifier
-                    .width(28.dp)
-                    .padding(top = 0.dp),
+                modifier = Modifier.width(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Top connector line (not for first station)
-                if (!isFirst) {
-                    Box(
-                        modifier = Modifier
-                            .width(2.dp)
-                            .height(10.dp)
-                            .background(lineColor)
-                    )
-                } else {
-                    Spacer(modifier = Modifier.height(10.dp))
-                }
+                Spacer(modifier = Modifier.height(10.dp))
 
                 // Dot / train icon
                 if (isLive) {
@@ -1134,18 +1136,6 @@ private fun RouteSegmentItem(
                             .size(12.dp)
                             .clip(CircleShape)
                             .background(dotColor)
-                    )
-                }
-
-                // Bottom connector line — fillMaxHeight() works because the
-                // parent Row is measured with IntrinsicSize.Min, so this box
-                // stretches to fill the card height and keeps the line connected.
-                if (showBottomLine || passingStations.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .width(2.dp)
-                            .fillMaxHeight()
-                            .background(lineColor)
                     )
                 }
             }
@@ -1261,19 +1251,16 @@ private fun CompactStationCard(
     val hasExpandableInfo = hasTimeInfo || stop.distance.isNotBlank() || stop.haltMinutes != null ||
         stop.coachPositions.isNotEmpty() || stop.liveStatusText.isNotBlank()
 
-    ElevatedCard(
+    Surface(
         modifier = modifier,
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = when {
-                isLive                             -> GreenDot.copy(alpha = 0.10f)
-                stop.status == StopStatus.DEPARTED -> MaterialTheme.colorScheme.surfaceContainerLow
-                else                               -> MaterialTheme.colorScheme.surface
-            }
-        ),
-        elevation = CardDefaults.elevatedCardElevation(
-            defaultElevation = if (isLive) 4.dp else 1.dp
-        )
+        color = when {
+            isLive                             -> GreenDot.copy(alpha = 0.10f)
+            stop.status == StopStatus.DEPARTED -> MaterialTheme.colorScheme.surfaceContainerLow
+            else                               -> MaterialTheme.colorScheme.surface
+        },
+        shadowElevation = if (isLive) 4.dp else 0.dp,
+        tonalElevation = 1.dp
     ) {
         Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
 
