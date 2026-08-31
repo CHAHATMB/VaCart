@@ -16,12 +16,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination
+import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.vacart.navigation.BottomBarScreen
 import com.vacart.navigation.NavGraph
+import com.vacart.navigation.Routes
 
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.ui.unit.dp
@@ -50,7 +52,7 @@ fun MainScreen() {
 
 @Composable
 fun BottomBar(navController: NavHostController) {
-    val screens = listOf(BottomBarScreen.Home, BottomBarScreen.Chat)
+    val screens = listOf(BottomBarScreen.Home, BottomBarScreen.Pnr, BottomBarScreen.TrainTracker, BottomBarScreen.Chat)
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
 
@@ -72,7 +74,7 @@ fun RowScope.AddItem(
     currentDestination: NavDestination?,
     navController: NavHostController
 ) {
-    val isSelected = currentDestination?.route == screen.route
+    val isSelected = currentDestination?.hierarchy?.any { it.route == screen.route } == true
     NavigationBarItem(
         icon = {
             Icon(
@@ -85,7 +87,15 @@ fun RowScope.AddItem(
         selected = isSelected,
         onClick = {
             if (!isSelected) {
-                navController.navigate(screen.route) {
+                navController.navigate(
+                    when (screen) {
+                        BottomBarScreen.Home -> Routes.HomeGraph.routes
+                        BottomBarScreen.Pnr -> Routes.PnrGraph.routes
+                        BottomBarScreen.Chat -> Routes.ChatGraph.routes
+                        BottomBarScreen.TrainTracker -> Routes.TrainTrackingGraph.routes
+                        else -> screen.route
+                    }
+                ) {
                     popUpTo(navController.graph.findStartDestination().id)
                     launchSingleTop = true
                 }

@@ -13,6 +13,7 @@ import com.vacart.presentation.home.HomeViewModel
 import com.vacart.presentation.home.screens.BerthDetail
 import com.vacart.presentation.home.screens.CoachDetail
 import com.vacart.presentation.home.screens.VacancyChart
+import com.vacart.presentation.pnr.PnrScreen
 
 @Composable
 fun NavGraph(navController: NavHostController){
@@ -65,6 +66,24 @@ fun NavGraph(navController: NavHostController){
         ) {
             composable(Routes.Chat.routes){
                 Chat()
+            }
+        }
+        navigation(
+            startDestination = Routes.Pnr.routes,
+            route = Routes.PnrGraph.routes
+        ) {
+            composable(Routes.Pnr.routes) {
+                val pnrViewModel = hiltViewModel<com.vacart.presentation.pnr.PnrViewModel>()
+                PnrScreen(viewModel = pnrViewModel)
+            }
+        }
+        navigation(
+            startDestination = Routes.TrainTracking.routes,
+            route = Routes.TrainTrackingGraph.routes
+        ) {
+            composable(Routes.TrainTracking.routes) {
+                val trackingViewModel = hiltViewModel<com.vacart.presentation.tracking.TrainTrackingViewModel>()
+                com.vacart.presentation.tracking.TrainTrackingScreen(viewModel = trackingViewModel)
             }
         }
 
