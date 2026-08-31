@@ -1,5 +1,6 @@
 package com.vacart
 
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonDeserializationContext
 import com.google.gson.JsonDeserializer
@@ -35,7 +36,9 @@ class HeaderInterceptor : Interceptor {
         val response = chain.proceed(request)
 
         // Log request URL
-        println("Request URL: ${request.url}")
+        if (BuildConfig.DEBUG) {
+            Log.d("NetworkLog", "Request URL: ${request.url}")
+        }
 
         // Log raw JSON response
         val responseBody = response.body
@@ -73,9 +76,14 @@ class HeaderInterceptor : Interceptor {
 }
 
 fun provideHttpLoggingInterceptor(): HttpLoggingInterceptor {
-    val loggingInterceptor = HttpLoggingInterceptor()
-    loggingInterceptor.setLevel(HttpLoggingInterceptor.Level.HEADERS) // Set the desired log level
-    loggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BODY) // Set the desired log level
+    val loggingInterceptor = HttpLoggingInterceptor { message ->
+        Log.d("NetworkLog", message)
+    }
+    loggingInterceptor.level = if (BuildConfig.DEBUG) {
+        HttpLoggingInterceptor.Level.BODY
+    } else {
+        HttpLoggingInterceptor.Level.NONE
+    }
     return loggingInterceptor
 }
 

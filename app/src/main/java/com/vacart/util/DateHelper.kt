@@ -13,3 +13,10 @@ import java.time.format.DateTimeFormatter
         val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd")
         return resultDate.format(formatter)
     }
+
+    fun getFormattedDateForNtes(offsetDays: Int): String {
+        val resultDate = LocalDate.now().plusDays(offsetDays.toLong())
+        val formatter = DateTimeFormatter.ofPattern("dd-MMM-yyyy", java.util.Locale.ENGLISH)
+        return resultDate.format(formatter)
+    }
+

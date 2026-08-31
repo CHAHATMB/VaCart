@@ -85,6 +85,12 @@ class TrainRepository @Inject constructor(private val trainAPI: TrainAPI) {
 sealed class Result<out T> {
     data class Success<T>(val data: T) : Result<T>()
     data class Error(val exception: Exception) : Result<Nothing>()
+    /** Returned when the server explicitly rejects the captcha answer. */
+    data class CaptchaError(val message: String) : Result<Nothing>()
+    /** Returned when the server session has expired or the request is invalid. */
+    object SessionError : Result<Nothing>()
+    /** Returned when the PNR is flushed or not yet generated. */
+    data class InvalidPnr(val reason: String) : Result<Nothing>()
     object Loading : Result<Nothing>()
 }
 
