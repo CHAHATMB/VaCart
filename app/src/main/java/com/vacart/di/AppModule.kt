@@ -6,6 +6,7 @@ import com.vacart.CustomJsonDeserializer
 import com.vacart.api.TrainAPI
 import com.vacart.client
 import com.vacart.roomdatabase.AppDatabase
+import com.vacart.roomdatabase.MIGRATION_1_2
 import com.google.gson.GsonBuilder
 import dagger.Module
 import dagger.Provides
@@ -18,7 +19,6 @@ import javax.inject.Singleton
 
 @Module
 @InstallIn(SingletonComponent::class)
-//@InstallIn(ViewModelComponent::class)
 object AppModule {
 
     var gson1 = GsonBuilder()
@@ -43,11 +43,24 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideAppDatabase(@ApplicationContext app: Context): AppDatabase = Room.databaseBuilder(context = app,
-        AppDatabase::class.java, "my_db").build()
+    fun provideAppDatabase(@ApplicationContext app: Context): AppDatabase =
+        Room.databaseBuilder(context = app, AppDatabase::class.java, "my_db")
+            .addMigrations(MIGRATION_1_2)
+            .build()
 
     @Provides
     @Singleton
-    fun provideYourDao(db: AppDatabase) = db.searchDao()
+    fun provideSearchDao(db: AppDatabase) = db.searchDao()
 
+    @Provides
+    @Singleton
+    fun provideVacartCacheDao(db: AppDatabase) = db.vacartCacheDao()
+
+    @Provides
+    @Singleton
+    fun providePnrCacheDao(db: AppDatabase) = db.pnrCacheDao()
+
+    @Provides
+    @Singleton
+    fun providePnrRecentSearchDao(db: AppDatabase) = db.pnrRecentSearchDao()
 }
