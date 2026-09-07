@@ -29,10 +29,12 @@ import androidx.compose.ui.unit.sp
 import com.vacart.model.PnrPassenger
 import com.vacart.model.PnrResponse
 
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PnrScreen(viewModel: PnrViewModel) {
     val state by viewModel.state.collectAsState()
+    val recentSearches by viewModel.recentSearches.collectAsState()
 
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp, 0.dp, 0.dp, 0.dp),
@@ -101,12 +103,15 @@ fun PnrScreen(viewModel: PnrViewModel) {
             when (step) {
                 PnrStep.INPUT -> PnrInputStep(
                     state = state,
+                    recentSearches = recentSearches,
                     onPnrChange = { viewModel.onEvent(PnrEvent.UpdatePnrInput(it)) },
                     onSubmit = {
                         if (state.pnrInput.length == 10) {
                             viewModel.onEvent(PnrEvent.FetchCaptcha)
                         }
-                    }
+                    },
+                    onSelectRecent = { viewModel.onEvent(PnrEvent.SelectRecentPnr(it)) },
+                    onDeleteRecent = { viewModel.onEvent(PnrEvent.DeleteRecentPnr(it)) }
                 )
                 PnrStep.CAPTCHA -> PnrCaptchaStep(
                     state = state,
@@ -119,8 +124,10 @@ fun PnrScreen(viewModel: PnrViewModel) {
                     val pnrResponse = state.pnrResponse ?: return@AnimatedContent
                     PnrResultStep(
                         pnrResponse = pnrResponse,
+                        state = state,
                         errorMessage = state.errorMessage,
-                        onCheckAnother = { viewModel.onEvent(PnrEvent.Reset) }
+                        onCheckAnother = { viewModel.onEvent(PnrEvent.Reset) },
+                        onSave = { viewModel.onEvent(PnrEvent.SavePnr) }
                     )
                 }
             }
@@ -131,14 +138,18 @@ fun PnrScreen(viewModel: PnrViewModel) {
 @Composable
 private fun PnrInputStep(
     state: PnrState,
+    recentSearches: List<com.vacart.roomdatabase.PnrRecentSearch>,
     onPnrChange: (String) -> Unit,
-    onSubmit: () -> Unit
+    onSubmit: () -> Unit,
+    onSelectRecent: (String) -> Unit,
+    onDeleteRecent: (String) -> Unit
 ) {
     var showError by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -240,6 +251,37 @@ private fun PnrInputStep(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                 }
+            }
+        }
+
+        // Recent PNR Searches
+        if (recentSearches.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.History,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Recent PNRs",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            recentSearches.forEach { recent ->
+                RecentPnrItem(
+                    recent = recent,
+                    onClick = { onSelectRecent(recent.pnrNumber) },
+                    onDelete = { onDeleteRecent(recent.pnrNumber) }
+                )
+                Spacer(modifier = Modifier.height(8.dp))
             }
         }
     }
@@ -398,16 +440,28 @@ private fun PnrCaptchaStep(
 @Composable
 private fun PnrResultStep(
     pnrResponse: PnrResponse,
+    state: PnrState,
     errorMessage: String?,
-    onCheckAnother: () -> Unit
+    onCheckAnother: () -> Unit,
+    onSave: () -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp)
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
+        // Offline / saved banners — shown full-width above the scrollable content
+        when {
+            state.isSavedData -> com.vacart.presentation.home.util.SavedDataBadge()
+            state.isOfflineData && state.offlineCachedAt != null ->
+                com.vacart.presentation.home.util.OfflineDataBanner(
+                    cachedAt = state.offlineCachedAt!!,
+                    isStale = state.isStaleOfflineData
+                )
+        }
+
+        Column(modifier = Modifier.padding(16.dp)) {
+            Spacer(modifier = Modifier.height(8.dp))
 
         // Train Info Card
         ElevatedCard(
@@ -595,6 +649,49 @@ private fun PnrResultStep(
             Spacer(modifier = Modifier.height(12.dp))
         }
 
+        // Save for offline button — only when all passengers have real berths
+        if (state.canSavePnr && !state.isSavedData) {
+            OutlinedButton(
+                onClick = onSave,
+                enabled = !state.isSaving,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    if (state.isSaving) "Saving…" else "Save for offline",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
+        // Saved confirmation
+        if (state.isSavedData) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Default.BookmarkAdded,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    "Saved",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+        }
+
         // Check Another PNR Button
         Button(
             onClick = onCheckAnother,
@@ -615,7 +712,8 @@ private fun PnrResultStep(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-    }
+        } // end inner Column
+    } // end outer Column
 }
 
 @Composable
@@ -721,3 +819,87 @@ private fun InfoRow(
         )
     }
 }
+
+@Composable
+private fun RecentPnrItem(
+    recent: com.vacart.roomdatabase.PnrRecentSearch,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val cacheIcon = when {
+        recent.isSaved -> Icons.Default.BookmarkAdded
+        recent.cacheType == com.vacart.roomdatabase.PnrCacheEntity.TYPE_AUTO -> Icons.Default.CloudDone
+        else -> null
+    }
+
+    ElevatedCard(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        ),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Leading icon
+            Icon(
+                imageVector = Icons.Default.ConfirmationNumber,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // PNR info
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = recent.pnrNumber,
+                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "${recent.trainName} · ${recent.journeyDate}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "${recent.sourceStation} → ${recent.destinationStation}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // Cache status icon
+            if (cacheIcon != null) {
+                Icon(
+                    imageVector = cacheIcon,
+                    contentDescription = null,
+                    tint = if (recent.isSaved) MaterialTheme.colorScheme.primary
+                           else MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+
+            // Delete button
+            IconButton(
+                onClick = onDelete,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Remove",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+

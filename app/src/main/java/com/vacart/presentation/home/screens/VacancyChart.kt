@@ -126,26 +126,39 @@ fun VacancyChart(navController: NavController, homeViewModel: HomeViewModel) {
         Column(
             modifier = Modifier
                 .padding(paddingValues)
-                .padding(horizontal = 16.dp)
                 .fillMaxSize()
         ) {
-            if (state.isLoading) {
-                LoadingScreen()
-            } else if (state.showError) {
-                ErrorPage(
-                    navController = navController,
-                    errorMessage = state.errorMessage ?: "Something went wrong! Please try again later."
+            // Offline / stale data banner
+            if (state.isOfflineData && state.offlineCachedAt != null) {
+                com.vacart.presentation.home.util.OfflineDataBanner(
+                    cachedAt = state.offlineCachedAt!!,
+                    isStale = state.isStaleData
                 )
-            } else state.trainComposition?.let { trainComp ->
-                TrainDetailBox(trainComp)
+            }
 
-                Spacer(modifier = Modifier.height(16.dp))
+            Column(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp)
+                    .fillMaxSize()
+            ) {
+                if (state.isLoading) {
+                    LoadingScreen()
+                } else if (state.showError) {
+                    ErrorPage(
+                        navController = navController,
+                        errorMessage = state.errorMessage ?: "Something went wrong! Please try again later."
+                    )
+                } else state.trainComposition?.let { trainComp ->
+                    TrainDetailBox(trainComp)
 
-                VacantBirthSection(navController, state, event)
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    VacantBirthSection(navController, state, event)
 
-                CoachStatusSection(navController, state, event, modifier = Modifier.weight(1f))
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    CoachStatusSection(navController, state, event, modifier = Modifier.weight(1f))
+                }
             }
         }
     }
