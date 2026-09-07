@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -32,6 +33,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -560,37 +562,26 @@ private fun TrainResultStep(
         TrainCurrentPosition.NotStarted   -> -1
     }
 
-    // Count the fixed header lazy items that sit above the segment list
-    val headerItemCount = remember(status) {
-        var count = 1  // TrainHeaderCard
-        count++        // Spacer after header
-        if (status.sourceStation.isNotBlank() || status.destStation.isNotBlank()) {
-            count++    // RouteSummaryBar
-            count++    // Spacer after summary
-        }
-        if (status.currentStatus.isNotBlank()) {
-            count++    // CurrentStatusCard
-            count++    // Spacer after status card
-        }
-        count++        // Section header row
-        count
+    // Journey progress fraction (0f to 1f)
+    val journeyProgress = remember(segments, currentSegmentIndex) {
+        if (segments.size <= 1 || currentSegmentIndex < 0) 0f
+        else (currentSegmentIndex.toFloat() / (segments.size - 1).toFloat()).coerceIn(0f, 1f)
     }
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Auto-scroll once the list has been laid out and we know where the train is.
-    // snapshotFlow waits until totalItemsCount > 0 so we never scroll to index 0 by mistake.
+    // Auto-scroll to current position
     LaunchedEffect(currentSegmentIndex) {
         if (currentSegmentIndex >= 0) {
-            val targetIndex = headerItemCount + currentSegmentIndex
+            val targetIndex = 2 + currentSegmentIndex
             snapshotFlow { listState.layoutInfo.totalItemsCount }
                 .collect { total ->
                     if (total > 0) {
                         coroutineScope.launch {
                             listState.animateScrollToItem(
                                 index = targetIndex.coerceAtMost(total - 1),
-                                scrollOffset = -120
+                                scrollOffset = -60
                             )
                         }
                         return@collect
@@ -600,429 +591,1065 @@ private fun TrainResultStep(
     }
 
     val expandedPassingIndices = remember { mutableStateListOf<Int>() }
-    val expandedStationIndices = remember { mutableStateListOf<Int>() }
     val totalStopsCount   = segments.size
     val totalPassingCount = status.stops.count { !it.isStop }
+    var showCoachModalForStop by remember { mutableStateOf<StationStop?>(null) }
 
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
+        contentPadding = PaddingValues(bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
-        // ── Train header card ──────────────────────────────────────────────
-        item { TrainHeaderCard(status = status) }
-        item { Spacer(modifier = Modifier.height(10.dp)) }
-
-        // ── Route summary bar (origin → destination) ───────────────────────
-        if (status.sourceStation.isNotBlank() || status.destStation.isNotBlank()) {
-            item { RouteSummaryBar(status = status) }
-            item { Spacer(modifier = Modifier.height(10.dp)) }
+        // ── 1. Train Header Card & Journey Progress Bar ─────────────────────
+        item(key = "train_header_card") {
+            TrainHeaderCard(
+                status = status,
+                progress = journeyProgress,
+                currentSegmentIndex = currentSegmentIndex,
+                totalSegments = segments.size,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            )
         }
 
-        // ── Current status card ────────────────────────────────────────────
-        if (status.currentStatus.isNotBlank()) {
-            item {
-                CurrentStatusCard(
-                    currentStatus = status.currentStatus,
-                    lastUpdatedOn = status.lastUpdatedOn,
-                    delayMins     = status.currentDelayMins
-                )
-            }
-            item { Spacer(modifier = Modifier.height(10.dp)) }
-        }
-
-        // ── Route overview header ──────────────────────────────────────────
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.Route,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Stops ($totalStopsCount)",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                    if (totalPassingCount > 0) {
-                        Text(
-                            text = " • $totalPassingCount passing",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                if (totalPassingCount > 0) {
-                    val allExpanded = expandedPassingIndices.size == segments.count { it.passingStations.isNotEmpty() }
-                    TextButton(
-                        onClick = {
-                            if (allExpanded) {
-                                expandedPassingIndices.clear()
-                            } else {
-                                expandedPassingIndices.clear()
-                                segments.forEachIndexed { i, s ->
-                                    if (s.passingStations.isNotEmpty()) expandedPassingIndices.add(i)
-                                }
-                            }
+        // ── 2. Column Headers (Arrival | Station | Departure) ───────────────
+        item(key = "route_column_headers") {
+            RouteTableColumnHeaders(
+                totalStops = totalStopsCount,
+                totalPassing = totalPassingCount,
+                allExpanded = totalPassingCount > 0 && expandedPassingIndices.size == segments.count { it.passingStations.isNotEmpty() },
+                onToggleAllPassing = {
+                    val allExp = expandedPassingIndices.size == segments.count { it.passingStations.isNotEmpty() }
+                    expandedPassingIndices.clear()
+                    if (!allExp) {
+                        segments.forEachIndexed { i, s ->
+                            if (s.passingStations.isNotEmpty()) expandedPassingIndices.add(i)
                         }
-                    ) {
-                        Text(if (allExpanded) "Collapse All" else "Expand All", style = MaterialTheme.typography.labelMedium)
                     }
                 }
-            }
+            )
         }
 
-        // ── Route segments (keyed for efficient recomposition) ─────────────
+        // ── 3. Route Segments (Columnar Rows) ───────────────────────────────
         segments.forEachIndexed { index, segment ->
             val isTrainInTransitAfterThis = currentPosition is TrainCurrentPosition.InTransit &&
                 currentPosition.fromSegmentIndex == index
+            val isLiveStation = (currentPosition is TrainCurrentPosition.AtStation &&
+                currentPosition.segmentIndex == index) || segment.stoppingStation.isLiveLocation
+            val isDeparted = (currentSegmentIndex >= 0 && index < currentSegmentIndex) ||
+                segment.stoppingStation.status == StopStatus.DEPARTED
+            val isPassingExpanded = expandedPassingIndices.contains(index)
 
             item(key = "stop_${segment.stoppingStation.stationCode}_$index") {
-                val isPassingExpanded  = expandedPassingIndices.contains(index)
-                val isStationExpanded  = expandedStationIndices.contains(index)
-
-                RouteSegmentItem(
-                    segment           = segment,
-                    isFirst           = index == 0,
-                    isLast            = index == segments.lastIndex && !isTrainInTransitAfterThis,
-                    isCurrentStation  = (currentPosition is TrainCurrentPosition.AtStation &&
-                        currentPosition.segmentIndex == index) || segment.stoppingStation.isLiveLocation,
+                ColumnarStationRow(
+                    segment = segment,
+                    isFirst = index == 0,
+                    isLast = index == segments.lastIndex && !isTrainInTransitAfterThis,
+                    isLive = isLiveStation,
+                    isDeparted = isDeparted,
                     isPassingExpanded = isPassingExpanded,
-                    isStationExpanded = isStationExpanded,
-                    showBottomLine    = index != segments.lastIndex || isTrainInTransitAfterThis,
-                    onTogglePassing   = {
+                    showBottomTrack = index != segments.lastIndex || isTrainInTransitAfterThis,
+                    onTogglePassing = {
                         if (segment.passingStations.isNotEmpty()) {
                             if (isPassingExpanded) expandedPassingIndices.remove(index) else expandedPassingIndices.add(index)
                         }
                     },
-                    onToggleStation   = {
-                        if (isStationExpanded) expandedStationIndices.remove(index) else expandedStationIndices.add(index)
-                    }
+                    onShowCoach = { showCoachModalForStop = segment.stoppingStation }
                 )
             }
 
+            // ── Inline Live Train Banner on Track ───────────────────────────
             if (isTrainInTransitAfterThis) {
-                item(key = "transit_$index") {
-                    InTransitTimelineItem(
-                        fromStation = segment.stoppingStation,
-                        toStation   = (currentPosition as TrainCurrentPosition.InTransit).toStation,
-                        delayMins   = status.currentDelayMins,
-                        isLastBeforeNext = true
+                item(key = "live_transit_banner_$index") {
+                    val inTransit = currentPosition as TrainCurrentPosition.InTransit
+                    InlineLiveStatusBanner(
+                        fromStation = inTransit.fromStation,
+                        toStation = inTransit.toStation,
+                        currentStatus = status.currentStatus,
+                        lastUpdated = status.lastUpdatedOn,
+                        delayMins = status.currentDelayMins,
+                        isLastBeforeNext = index == segments.lastIndex - 1
                     )
                 }
             }
         }
 
+        // ── 4. Error message if any ─────────────────────────────────────────
         if (errorMessage != null) {
-            item {
+            item(key = "error_msg") {
                 Text(
                     text = errorMessage,
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodySmall,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
                 )
             }
         }
 
-        item {
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-                onClick = onTrackAnother,
+        // ── 5. Dynamic Data Disclaimer Card ─────────────────────────────────
+        item(key = "footer_disclaimer") {
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
             ) {
-                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    "Track Another Train",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Note: Times marked with (*) are dynamic estimations based on NTES live feed and may change.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(12.dp))
         }
+
+        // ── 6. Track Another Train Button ───────────────────────────────────
+        item(key = "track_another_button") {
+            Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)) {
+                Button(
+                    onClick = onTrackAnother,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        "Track Another Train",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+            }
+        }
+    }
+
+    // Coach Position Dialog
+    showCoachModalForStop?.let { stop ->
+        CoachPositionDialog(
+            stationName = stop.stationName.ifBlank { stop.stationCode },
+            platform = stop.platform,
+            coaches = stop.coachPositions,
+            divyangjanInfo = stop.divyangjanInfo,
+            onDismiss = { showCoachModalForStop = null }
+        )
     }
 }
 
-// ─── Header card ───────────────────────────────────────────────────────────────
+// ─── Train header card with progress bar ───────────────────────────────────────
 
 @Composable
-private fun TrainHeaderCard(status: TrainRunningStatus) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp)
+private fun TrainHeaderCard(
+    status: TrainRunningStatus,
+    progress: Float,
+    currentSegmentIndex: Int,
+    totalSegments: Int,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shadowElevation = 2.dp,
+        tonalElevation = 2.dp
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            // Train Number Badge + Train Name + LIVE badge
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    ) {
+                        Text(
+                            text = status.trainNumber,
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                letterSpacing = 0.5.sp
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = status.trainName,
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Train #${status.trainNumber}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (status.trainType.isNotBlank()) {
-                            Text(
-                                text = " • ${status.trainType}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                Column(horizontalAlignment = Alignment.End) {
-                    // LIVE badge
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = GreenDot
                     ) {
                         Text(
                             text = "● LIVE",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                             color = Color.White,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
                         )
                     }
-                    // Delay pill
-                    if (status.currentDelayMins != null && status.currentDelayMins > 0) {
-                        Spacer(modifier = Modifier.height(4.dp))
+                    if (status.currentDelayMins != null) {
                         DelayPill(delayMins = status.currentDelayMins)
                     }
                 }
             }
 
-            // Classes row
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Origin → Destination with distance
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (status.sourceStationName.isNotBlank()) "${status.sourceStationName} (${status.sourceStation})" else status.sourceStation.ifBlank { "Origin" },
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    if (status.totalDistance.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "${status.totalDistance} km",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Text(
+                    text = if (status.destStationName.isNotBlank()) "${status.destStationName} (${status.destStation})" else status.destStation.ifBlank { "Destination" },
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+            }
+
+            // Start Date & Train Type
+            if (status.startDate.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Start Date: ${status.startDate}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (status.trainType.isNotBlank()) {
+                        Text(
+                            text = " • ${status.trainType}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // ── Horizontal Journey Progress Bar ─────────────────────────────
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(18.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    // Track background
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                    )
+                    // Filled progress track
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction = progress.coerceAtLeast(0.02f))
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(GreenDot)
+                    )
+                    // Train icon marker at current progress position
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction = progress.coerceIn(0.03f, 0.97f)),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = GreenLive,
+                            shadowElevation = 2.dp,
+                            modifier = Modifier.size(18.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Train,
+                                    contentDescription = "Train location",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Progress captions below bar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = status.sourceStation,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (currentSegmentIndex >= 0 && totalSegments > 0) {
+                        val pct = (progress * 100).toInt()
+                        Text(
+                            text = "$pct% completed (Stop ${currentSegmentIndex + 1}/$totalSegments)",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                            color = GreenLive
+                        )
+                    }
+                    Text(
+                        text = status.destStation,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Classes row if available
             if (status.classes.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     status.classes.split(",").map { it.trim() }.filter { it.isNotBlank() }.forEach { cls ->
                         Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer
+                            shape = RoundedCornerShape(4.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
                         ) {
                             Text(
                                 text = cls,
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
                     }
                 }
             }
-
-            if (status.startDate.isNotBlank()) {
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.CalendarToday,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Start Date: ${status.startDate}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
         }
     }
 }
 
-// ─── Route summary bar ─────────────────────────────────────────────────────────
+// ─── Table column headers (Arrival | Station | Departure) ──────────────────────
 
 @Composable
-private fun RouteSummaryBar(status: TrainRunningStatus) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 2.dp)
+private fun RouteTableColumnHeaders(
+    totalStops: Int,
+    totalPassing: Int,
+    allExpanded: Boolean,
+    onToggleAllPassing: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        tonalElevation = 1.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Source
-            Column(
+            // Arrival column label
+            Text(
+                text = "Arrival",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.5.sp
+                ),
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.width(74.dp)
+            )
+
+            // Station column label + count + expand all
+            Row(
                 modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.Start
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(
-                    text = status.sourceStation.ifBlank { "—" },
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-                if (status.sourceStationName.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = status.sourceStationName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        text = "Station",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            letterSpacing = 0.5.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = " ($totalStops)",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (totalPassingCountIsPositive(totalPassing)) {
+                    Text(
+                        text = if (allExpanded) "Collapse All" else "Expand All",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { onToggleAllPassing() }
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }
-            // Arrow + distance
-            Column(
-                modifier = Modifier.weight(1.2f),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowForward,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(20.dp)
-                )
-                if (status.totalDistance.isNotBlank()) {
-                    Text(
-                        text = "${status.totalDistance} km",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
-                    )
-                }
-            }
-            // Destination
-            Column(
-                modifier = Modifier.weight(1f),
-                horizontalAlignment = Alignment.End
-            ) {
-                Text(
-                    text = status.destStation.ifBlank { "—" },
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
-                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                )
-                if (status.destStationName.isNotBlank()) {
-                    Text(
-                        text = status.destStationName,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+
+            // Departure column label
+            Text(
+                text = "Departure",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.5.sp
+                ),
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.End,
+                modifier = Modifier.width(74.dp)
+            )
         }
     }
 }
 
-// ─── Current status card ───────────────────────────────────────────────────────
+private fun totalPassingCountIsPositive(count: Int): Boolean = count > 0
+
+// ─── Columnar station row (3-Column Layout) ───────────────────────────────────
 
 @Composable
-private fun CurrentStatusCard(
-    currentStatus: String,
-    lastUpdatedOn: String,
-    delayMins: Int?
+private fun ColumnarStationRow(
+    segment: RouteSegment,
+    isFirst: Boolean,
+    isLast: Boolean,
+    isLive: Boolean,
+    isDeparted: Boolean,
+    isPassingExpanded: Boolean,
+    showBottomTrack: Boolean,
+    onTogglePassing: () -> Unit,
+    onShowCoach: () -> Unit
 ) {
-    val isDelayed = delayMins != null && delayMins > 0
-    val cardColor = if (isDelayed)
-        AmberLight
-    else
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f)
-    val onCardColor = if (isDelayed)
-        Color(0xFF4E2800)
-    else
-        MaterialTheme.colorScheme.onPrimaryContainer
+    val stop = segment.stoppingStation
+    val passingStations = segment.passingStations
 
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = cardColor),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
+    val trackColor = when {
+        isLive       -> GreenDot
+        isDeparted   -> MaterialTheme.colorScheme.outline
+        else         -> MaterialTheme.colorScheme.primary
+    }
+
+    val rowBgColor = when {
+        isLive     -> GreenDot.copy(alpha = 0.08f)
+        isDeparted -> MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.4f)
+        else       -> MaterialTheme.colorScheme.surface
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(rowBgColor)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+        // Main 3-column station row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            // ── Left Column: Arrival Times ──────────────────────────────────
+            Column(
+                modifier = Modifier.width(74.dp),
+                horizontalAlignment = Alignment.Start
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.LocationOn,
-                        contentDescription = null,
-                        tint = if (isDelayed) AmberDelay else MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                if (stop.scheduledArrival.isNotBlank()) {
                     Text(
-                        text = "Current Status",
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                        color = onCardColor
+                        text = stop.scheduledArrival,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    val actArr = stop.actualArrival.ifBlank { stop.scheduledArrival }
+                    val isArrDelayed = (stop.delayMinutes != null && stop.delayMinutes > 0) ||
+                        (stop.arrivalDelay.isNotBlank() && stop.arrivalDelay != "00:00" && !stop.arrivalDelay.startsWith("00:0"))
+                    val arrColor = if (isArrDelayed) MaterialTheme.colorScheme.error else GreenLive
+
+                    Text(
+                        text = actArr,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        ),
+                        color = arrColor
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    DelayBadge(delayMins = stop.delayMinutes, delayText = stop.arrivalDelay)
+                } else if (isFirst) {
+                    Text(
+                        text = "Source",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    Text(
+                        text = "—",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
                     )
                 }
-                if (delayMins != null) DelayPill(delayMins = delayMins)
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = currentStatus,
-                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = onCardColor
-            )
-            if (lastUpdatedOn.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Default.AccessTime,
-                        contentDescription = null,
-                        tint = onCardColor.copy(alpha = 0.6f),
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
+
+            // ── Center Column: Track + Station Info ─────────────────────────
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .drawBehind {
+                        val lineX = 10.dp.toPx()
+                        val strokeW = 2.dp.toPx()
+                        val topY = 0f
+                        val dotCenterY = 12.dp.toPx()
+                        val bottomY = size.height
+
+                        // Top rail connector
+                        if (!isFirst) {
+                            drawLine(
+                                color = trackColor,
+                                start = Offset(lineX, topY),
+                                end = Offset(lineX, dotCenterY - 6.dp.toPx()),
+                                strokeWidth = strokeW,
+                                cap = StrokeCap.Round
+                            )
+                        }
+                        // Bottom rail connector
+                        if (showBottomTrack || passingStations.isNotEmpty()) {
+                            drawLine(
+                                color = trackColor,
+                                start = Offset(lineX, dotCenterY + 6.dp.toPx()),
+                                end = Offset(lineX, bottomY),
+                                strokeWidth = strokeW,
+                                cap = StrokeCap.Round
+                            )
+                        }
+                    }
+                    .padding(start = 0.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                // Track Node Circle
+                Box(
+                    modifier = Modifier
+                        .width(20.dp)
+                        .padding(top = 3.dp),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    if (isLive) {
+                        Surface(
+                            shape = CircleShape,
+                            color = GreenDot,
+                            shadowElevation = 3.dp,
+                            modifier = Modifier.size(18.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.Train,
+                                    contentDescription = "Live",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                            }
+                        }
+                    } else if (isDeparted) {
+                        Box(
+                            modifier = Modifier
+                                .size(9.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.outline)
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(9.dp)
+                                .clip(CircleShape)
+                                .background(GreenDot)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Station Details Column
+                Column(modifier = Modifier.weight(1f)) {
+                    // Station Name
                     Text(
-                        text = "Last updated: $lastUpdatedOn",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = onCardColor.copy(alpha = 0.7f)
+                        text = stop.stationName.ifBlank { stop.stationCode },
+                        style = MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // Station Code + Platform + Distance + Halt chips
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            text = stop.stationCode,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 11.sp
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+
+                        if (stop.platform.isNotBlank()) {
+                            PlatformBadge(stop.platform)
+                        }
+
+                        if (stop.distance.isNotBlank()) {
+                            Text(
+                                text = stop.distance,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (stop.haltMinutes != null && stop.haltMinutes > 0) {
+                            Text(
+                                text = "• ${stop.haltMinutes}m halt",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        if (stop.dayCount > 0) {
+                            Surface(
+                                shape = RoundedCornerShape(3.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant
+                            ) {
+                                Text(
+                                    text = "D${stop.dayCount + 1}",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Coach Position chip & Passing Station toggle
+                    if (stop.coachPositions.isNotEmpty() || passingStations.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            if (stop.coachPositions.isNotEmpty()) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.clickable { onShowCoach() }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Train,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text(
+                                            text = "Coach >>",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            ),
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (passingStations.isNotEmpty()) {
+                                Text(
+                                    text = if (isPassingExpanded) "Hide passing" else "+${passingStations.size} passing",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable { onTogglePassing() }
+                                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Right Column: Departure Times ───────────────────────────────
+            Column(
+                modifier = Modifier.width(74.dp),
+                horizontalAlignment = Alignment.End
+            ) {
+                if (stop.scheduledDeparture.isNotBlank()) {
+                    Text(
+                        text = stop.scheduledDeparture,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    val actDep = stop.actualDeparture.ifBlank { stop.scheduledDeparture }
+                    val isDepDelayed = (stop.delayMinutes != null && stop.delayMinutes > 0) ||
+                        (stop.departureDelay.isNotBlank() && stop.departureDelay != "00:00" && !stop.departureDelay.startsWith("00:0"))
+                    val depColor = if (isDepDelayed) MaterialTheme.colorScheme.error else GreenLive
+
+                    Text(
+                        text = actDep,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        ),
+                        color = depColor
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    DelayBadge(delayMins = stop.delayMinutes, delayText = stop.departureDelay)
+                } else if (isLast) {
+                    Text(
+                        text = "Dest",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp
+                        ),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    Text(
+                        text = "—",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
                     )
                 }
+            }
+        }
+
+        // ── Passing Stations List (Indented under station) ───────────────────
+        if (passingStations.isNotEmpty()) {
+            AnimatedVisibility(
+                visible = isPassingExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit  = shrinkVertically() + fadeOut()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 74.dp + 6.dp, end = 12.dp, bottom = 4.dp)
+                ) {
+                    passingStations.forEach { passing ->
+                        PassingStationRow(passing = passing)
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+            thickness = 0.5.dp
+        )
+    }
+}
+
+// ─── Inline live train status banner (On Track) ────────────────────────────────
+
+@Composable
+private fun InlineLiveStatusBanner(
+    fromStation: StationStop,
+    toStation: StationStop,
+    currentStatus: String,
+    lastUpdated: String,
+    delayMins: Int?,
+    isLastBeforeNext: Boolean
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        color = AmberLight,
+        tonalElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Track Train Badge
+            Box(
+                modifier = Modifier
+                    .width(74.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = GreenLive,
+                    shadowElevation = 3.dp,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Train,
+                            contentDescription = "Live Train Location",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
+
+            // Live Text & Upcoming Station
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = currentStatus.ifBlank { "Departed from ${fromStation.stationCode} (${fromStation.stationName})" },
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    ),
+                    color = Color(0xFF4E2800)
+                )
+
+                if (toStation.stationCode.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Upcoming: ${toStation.stationName.ifBlank { toStation.stationCode }} (${toStation.stationCode})",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        color = Color(0xFF6D3C00)
+                    )
+                }
+
+                if (lastUpdated.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Last updated: $lastUpdated",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = Color(0xFF8D5000)
+                    )
+                }
+            }
+
+            // Delay Pill on right
+            if (delayMins != null) {
+                Spacer(modifier = Modifier.width(6.dp))
+                DelayPill(delayMins = delayMins)
             }
         }
     }
 }
 
-// ─── Delay pill ────────────────────────────────────────────────────────────────
+// ─── Compact passing station row ───────────────────────────────────────────────
+
+@Composable
+private fun PassingStationRow(passing: StationStop) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Small dash/circle for passing track
+        Box(
+            modifier = Modifier
+                .size(5.dp)
+                .clip(CircleShape)
+                .background(if (passing.isLiveLocation) GreenDot else MaterialTheme.colorScheme.outline)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Station Code + Name
+        Text(
+            text = passing.stationCode,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        if (passing.stationName != passing.stationCode && passing.stationName.isNotBlank()) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "– ${passing.stationName}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        // Distance & Passing time
+        if (passing.distance.isNotBlank()) {
+            Text(
+                text = passing.distance,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+        }
+
+        val passTime = passing.scheduledArrival.ifBlank { passing.scheduledDeparture }
+        if (passTime.isNotBlank()) {
+            Text(
+                text = passTime,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+// ─── Non-wrapping Delay badge ──────────────────────────────────────────────────
+
+@Composable
+private fun DelayBadge(delayMins: Int?, delayText: String) {
+    val isDelayed = (delayMins != null && delayMins > 0) ||
+        (delayText.isNotBlank() && delayText != "00:00" && !delayText.startsWith("00:0"))
+
+    val (bgColor, fgColor, text) = when {
+        !isDelayed -> Triple(GreenDot, Color.White, "On Time")
+        delayMins != null && delayMins > 0 -> {
+            if (delayMins < 60) Triple(RedDelay, Color.White, "${delayMins} Min")
+            else Triple(RedDelay, Color.White, "${delayMins / 60}h ${delayMins % 60}m")
+        }
+        delayText.isNotBlank() -> Triple(RedDelay, Color.White, delayText)
+        else -> Triple(GreenDot, Color.White, "On Time")
+    }
+
+    Surface(
+        shape = RoundedCornerShape(3.dp),
+        color = bgColor
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold
+            ),
+            color = fgColor,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+        )
+    }
+}
+
+// ─── Platform badge ────────────────────────────────────────────────────────────
+
+@Composable
+private fun PlatformBadge(platform: String) {
+    if (platform.isBlank()) return
+    Surface(
+        shape = RoundedCornerShape(3.dp),
+        color = Color(0xFFFF8F00).copy(alpha = 0.18f)
+    ) {
+        Text(
+            text = platform,
+            style = MaterialTheme.typography.labelSmall.copy(
+                fontSize = 9.sp,
+                fontWeight = FontWeight.ExtraBold
+            ),
+            color = Color(0xFFE65100),
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+        )
+    }
+}
+
+// ─── Delay pill (header) ───────────────────────────────────────────────────────
 
 @Composable
 private fun DelayPill(delayMins: Int) {
@@ -1038,661 +1665,11 @@ private fun DelayPill(delayMins: Int) {
     ) {
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
             color = fgColor,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-        )
-    }
-}
-
-// ─── Route segment item ────────────────────────────────────────────────────────
-// Timeline lines are drawn via drawBehind (single-pass measurement) and only the
-// dot / train icon is placed as a composable – eliminates IntrinsicSize double-measure.
-
-@Composable
-private fun RouteSegmentItem(
-    segment: RouteSegment,
-    isFirst: Boolean,
-    isLast: Boolean,
-    isCurrentStation: Boolean = false,
-    isPassingExpanded: Boolean,
-    isStationExpanded: Boolean,
-    showBottomLine: Boolean,
-    onTogglePassing: () -> Unit,
-    onToggleStation: () -> Unit
-) {
-    val stop = segment.stoppingStation
-    val passingStations = segment.passingStations
-    var showCoachModal by remember { mutableStateOf(false) }
-
-    val isLive = isCurrentStation || stop.isLiveLocation || stop.status == StopStatus.AT_STATION
-
-    val dotColor = when {
-        isLive                             -> GreenDot
-        stop.status == StopStatus.DEPARTED -> MaterialTheme.colorScheme.primary
-        stop.status == StopStatus.UPCOMING -> MaterialTheme.colorScheme.outline
-        else                               -> MaterialTheme.colorScheme.outlineVariant
-    }
-    val lineColor = when {
-        isLive                             -> MaterialTheme.colorScheme.primary
-        stop.status == StopStatus.DEPARTED -> MaterialTheme.colorScheme.primary
-        else                               -> MaterialTheme.colorScheme.outlineVariant
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = if (isLast) 0.dp else 6.dp)
-    ) {
-        // ── Main stop row (timeline dot + card) ───────────────────────────
-        // Timeline lines are drawn in drawBehind for single-pass measurement.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .drawBehind {
-                    val lineX = 14.dp.toPx()
-                    val strokeW = 2.dp.toPx()
-                    val topSpace = 10.dp.toPx()
-                    val dotH = if (isLive) 24.dp.toPx() else 12.dp.toPx()
-                    val dotBottom = topSpace + dotH
-                    // Top connector
-                    if (!isFirst) {
-                        drawLine(lineColor, Offset(lineX, 0f), Offset(lineX, topSpace), strokeW)
-                    }
-                    // Bottom connector
-                    if (showBottomLine || passingStations.isNotEmpty()) {
-                        drawLine(lineColor, Offset(lineX, dotBottom), Offset(lineX, size.height), strokeW)
-                    }
-                },
-            verticalAlignment = Alignment.Top
-        ) {
-            // ── Timeline column (dot only) ────────────────────────────────
-            Column(
-                modifier = Modifier.width(28.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Dot / train icon
-                if (isLive) {
-                    Surface(
-                        shape = CircleShape,
-                        color = GreenDot,
-                        shadowElevation = 6.dp,
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = Icons.Default.Train,
-                                contentDescription = "Current Train Location",
-                                tint = Color.White,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .clip(CircleShape)
-                            .background(dotColor)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            // ── Station card ──────────────────────────────────────────────
-            CompactStationCard(
-                stop              = stop,
-                passingStations   = passingStations,
-                isLive            = isLive,
-                isPassingExpanded = isPassingExpanded,
-                isStationExpanded = isStationExpanded,
-                onTogglePassing   = onTogglePassing,
-                onToggleStation   = onToggleStation,
-                onShowCoach       = { showCoachModal = true },
-                modifier          = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = if (showBottomLine || passingStations.isNotEmpty()) 0.dp else 2.dp)
-            )
-        }
-
-        // ── Passing stations (indented, below the card) ───────────────────
-        if (passingStations.isNotEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 36.dp)
-            ) {
-                // Expand/collapse toggle row for passing stations
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { onTogglePassing() }
-                        .padding(vertical = 4.dp, horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Small connecting vertical dash on left
-                    Icon(
-                        imageVector = if (isPassingExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = if (isPassingExpanded) "Hide ${passingStations.size} passing stations"
-                               else "+ ${passingStations.size} passing stations",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                AnimatedVisibility(
-                    visible = isPassingExpanded,
-                    enter = expandVertically() + fadeIn(),
-                    exit  = shrinkVertically() + fadeOut()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        passingStations.forEach { passing ->
-                            PassingStationItem(passing = passing)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    if (showCoachModal && stop.coachPositions.isNotEmpty()) {
-        CoachPositionDialog(
-            stationName    = stop.stationName.ifBlank { stop.stationCode },
-            platform       = stop.platform,
-            coaches        = stop.coachPositions,
-            divyangjanInfo = stop.divyangjanInfo,
-            onDismiss      = { showCoachModal = false }
-        )
-    }
-}
-
-// ─── Compact station card (collapsed + expandable) ─────────────────────────────
-
-@Composable
-private fun CompactStationCard(
-    stop: StationStop,
-    passingStations: List<StationStop>,
-    isLive: Boolean,
-    isPassingExpanded: Boolean,
-    isStationExpanded: Boolean,
-    onTogglePassing: () -> Unit,
-    onToggleStation: () -> Unit,
-    onShowCoach: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val chevronRotation by animateFloatAsState(
-        targetValue = if (isStationExpanded) 180f else 0f,
-        label = "chevron"
-    )
-
-    // Compute a compact time string for collapsed view
-    val primaryTime = when {
-        stop.scheduledArrival.isNotBlank()   -> stop.scheduledArrival
-        stop.scheduledDeparture.isNotBlank() -> stop.scheduledDeparture
-        else                                 -> ""
-    }
-    val hasTimeInfo = stop.scheduledArrival.isNotBlank() || stop.scheduledDeparture.isNotBlank() ||
-        stop.actualArrival.isNotBlank() || stop.actualDeparture.isNotBlank()
-    val hasExpandableInfo = hasTimeInfo || stop.distance.isNotBlank() || stop.haltMinutes != null ||
-        stop.coachPositions.isNotEmpty() || stop.liveStatusText.isNotBlank()
-
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        color = when {
-            isLive                             -> GreenDot.copy(alpha = 0.10f)
-            stop.status == StopStatus.DEPARTED -> MaterialTheme.colorScheme.surfaceContainerLow
-            else                               -> MaterialTheme.colorScheme.surface
-        },
-        shadowElevation = if (isLive) 4.dp else 0.dp,
-        tonalElevation = 1.dp
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
-
-            // ── Collapsed header row ──────────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable(enabled = hasExpandableInfo) { onToggleStation() },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Station code + name
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Text(
-                            text = stop.stationCode,
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.5.sp
-                            ),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        if (stop.platform.isNotBlank()) {
-                            PlatformBadge(stop.platform)
-                        }
-                        if (stop.dayCount > 0) {
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant
-                            ) {
-                                Text(
-                                    text = "D${stop.dayCount + 1}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                                )
-                            }
-                        }
-                    }
-                    if (stop.stationName != stop.stationCode && stop.stationName.isNotBlank()) {
-                        Text(
-                            text = stop.stationName,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                // Right side: time + live badge / chevron
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Show scheduled time compactly in collapsed view
-                    if (!isStationExpanded && primaryTime.isNotBlank()) {
-                        val actualTime = when {
-                            stop.scheduledArrival.isNotBlank() && stop.actualArrival.isNotBlank() -> stop.actualArrival
-                            stop.scheduledDeparture.isNotBlank() && stop.actualDeparture.isNotBlank() -> stop.actualDeparture
-                            else -> ""
-                        }
-                        val isDelayed = stop.delayMinutes != null && stop.delayMinutes > 0
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(
-                                text = primaryTime,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (actualTime.isNotBlank() && actualTime != primaryTime) {
-                                Text(
-                                    text = actualTime,
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = if (isDelayed) MaterialTheme.colorScheme.error else GreenLive
-                                )
-                            }
-                        }
-                    }
-
-                    if (isLive) {
-                        Surface(shape = RoundedCornerShape(50), color = GreenDot) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Train,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                                Spacer(modifier = Modifier.width(3.dp))
-                                Text(
-                                    text = "HERE",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = Color.White
-                                )
-                            }
-                        }
-                    }
-
-                    if (hasExpandableInfo) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = if (isStationExpanded) "Collapse" else "Expand",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .size(18.dp)
-                                .rotate(chevronRotation)
-                        )
-                    }
-                }
-            }
-
-            // ── Expanded detail section ───────────────────────────────────
-            AnimatedVisibility(
-                visible = isStationExpanded,
-                enter = expandVertically() + fadeIn(),
-                exit  = shrinkVertically() + fadeOut()
-            ) {
-                Column {
-                    // Live event banner
-                    if (stop.liveStatusText.isNotBlank() || stop.updatedOn.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = GreenLight,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.LocationOn,
-                                    contentDescription = null,
-                                    tint = GreenLive,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    if (stop.liveStatusText.isNotBlank()) {
-                                        Text(
-                                            text = stop.liveStatusText,
-                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = GreenLive
-                                        )
-                                    }
-                                    if (stop.updatedOn.isNotBlank()) {
-                                        Text(
-                                            text = "Updated: ${stop.updatedOn}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color(0xFF388E3C)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Time blocks (arrival + departure) with delay diff
-                    val hasArrival   = stop.scheduledArrival.isNotBlank() || stop.actualArrival.isNotBlank()
-                    val hasDeparture = stop.scheduledDeparture.isNotBlank() || stop.actualDeparture.isNotBlank()
-
-                    if (hasArrival || hasDeparture) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            if (hasArrival) {
-                                TimeBlock(
-                                    label     = "Arrival",
-                                    scheduled = stop.scheduledArrival,
-                                    actual    = stop.actualArrival,
-                                    delay     = stop.arrivalDelay,
-                                    delayMins = stop.delayMinutes,
-                                    modifier  = Modifier.weight(1f)
-                                )
-                            }
-                            if (hasDeparture) {
-                                TimeBlock(
-                                    label     = "Departure",
-                                    scheduled = stop.scheduledDeparture,
-                                    actual    = stop.actualDeparture,
-                                    delay     = stop.departureDelay,
-                                    delayMins = stop.delayMinutes,
-                                    modifier  = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-
-                    // Distance + halt time + coach button
-                    val hasBottomInfo = stop.distance.isNotBlank() ||
-                        stop.haltMinutes != null ||
-                        stop.coachPositions.isNotEmpty()
-
-                    if (hasBottomInfo) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (stop.distance.isNotBlank()) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            Icons.Default.Straighten,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(11.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Spacer(modifier = Modifier.width(3.dp))
-                                        Text(
-                                            text = stop.distance,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                                if (stop.haltMinutes != null && stop.haltMinutes > 0) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            Icons.Default.Timer,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(11.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                        Spacer(modifier = Modifier.width(3.dp))
-                                        Text(
-                                            text = "${stop.haltMinutes}m halt",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            }
-
-                            if (stop.coachPositions.isNotEmpty()) {
-                                OutlinedButton(
-                                    onClick = onShowCoach,
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(26.dp),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Train,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(12.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = "Coach",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ─── Passing station row ────────────────────────────────────────────────────────
-
-@Composable
-private fun PassingStationItem(passing: StationStop) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (passing.isLiveLocation) GreenLight
-                             else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.5f)
-        )
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(if (passing.isLiveLocation) 8.dp else 5.dp)
-                            .clip(CircleShape)
-                            .background(if (passing.isLiveLocation) GreenDot else MaterialTheme.colorScheme.outline)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = passing.stationCode,
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    if (passing.stationName != passing.stationCode && passing.stationName.isNotBlank()) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "– ${passing.stationName}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (passing.distance.isNotBlank()) {
-                        Text(
-                            text = passing.distance,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (passing.dayCount > 0) {
-                        Text(
-                            text = "D${passing.dayCount + 1}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-            if (passing.liveStatusText.isNotBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = passing.liveStatusText,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = GreenLive
-                )
-            }
-        }
-    }
-}
-
-// ─── Time block ─────────────────────────────────────────────────────────────────
-
-@Composable
-private fun TimeBlock(
-    label: String,
-    scheduled: String,
-    actual: String,
-    delay: String = "",
-    delayMins: Int? = null,
-    modifier: Modifier = Modifier
-) {
-    val isDelayed = (delayMins != null && delayMins > 0) ||
-                    (delay.isNotBlank() && delay != "00:00" && !delay.startsWith("00:0"))
-    val actualColor = when {
-        actual.isBlank() -> MaterialTheme.colorScheme.onSurfaceVariant
-        isDelayed        -> MaterialTheme.colorScheme.error
-        else             -> GreenLive
-    }
-
-    Column(modifier = modifier) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.primary
-        )
-        if (scheduled.isNotBlank()) {
-            Text(
-                text = "Sch: $scheduled",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        if (actual.isNotBlank()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Act: $actual",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
-                    color = actualColor
-                )
-                if (delay.isNotBlank()) {
-                    Spacer(modifier = Modifier.width(5.dp))
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (isDelayed) MaterialTheme.colorScheme.errorContainer
-                                else GreenDot.copy(alpha = 0.18f)
-                    ) {
-                        Text(
-                            text = delay,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = if (isDelayed) MaterialTheme.colorScheme.onErrorContainer else GreenLive,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                        )
-                    }
-                }
-            }
-        }
-        if (actual.isBlank() && scheduled.isBlank() && delay.isBlank()) {
-            Text(
-                text = "—",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.outline
-            )
-        }
-    }
-}
-
-// ─── Platform badge ────────────────────────────────────────────────────────────
-
-@Composable
-private fun PlatformBadge(platform: String) {
-    Surface(
-        shape = RoundedCornerShape(6.dp),
-        color = MaterialTheme.colorScheme.tertiaryContainer
-    ) {
-        Text(
-            text = platform,
-            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onTertiaryContainer,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
         )
     }
 }
@@ -1788,118 +1765,4 @@ private fun CoachPositionDialog(
             TextButton(onClick = onDismiss) { Text("Close") }
         }
     )
-}
-
-// ─── In-transit timeline item ──────────────────────────────────────────────────
-
-@Composable
-private fun InTransitTimelineItem(
-    fromStation: StationStop,
-    toStation: StationStop,
-    delayMins: Int?,
-    isLastBeforeNext: Boolean = false
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 0.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        // Timeline column with connecting lines + animated train icon
-        Column(
-            modifier = Modifier.width(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(2.dp)
-                    .height(8.dp)
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primary,
-                shadowElevation = 4.dp,
-                modifier = Modifier.size(22.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Train,
-                        contentDescription = "Train in transit",
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(13.dp)
-                    )
-                }
-            }
-            if (isLastBeforeNext) {
-                Box(
-                    modifier = Modifier
-                        .width(2.dp)
-                        .height(10.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.width(8.dp))
-
-        ElevatedCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 0.dp),
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.elevatedCardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer
-            ),
-            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp)
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Train,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "In Transit 🚆",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                    if (delayMins != null) DelayPill(delayMins = delayMins)
-                }
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    text = "${fromStation.stationCode} → ${toStation.stationCode}",
-                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f)
-                )
-                val nextActual = toStation.actualArrival.ifBlank { toStation.scheduledArrival }
-                if (nextActual.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.AccessTime,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                            modifier = Modifier.size(11.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = "ETA ${toStation.stationCode}: $nextActual",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                        )
-                    }
-                }
-            }
-        }
-    }
 }
