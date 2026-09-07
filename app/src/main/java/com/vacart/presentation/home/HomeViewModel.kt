@@ -2,9 +2,13 @@ package com.vacart.presentation.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import com.vacart.model.CoachComposition
 import com.vacart.model.CoachCompositionRequest
 import com.vacart.model.TrainInfo
 import com.vacart.model.TrainInfoRequest
+import com.vacart.model.VacantBerth
 import com.vacart.model.VacantBerthRequest
 import com.vacart.repository.Result
 import com.vacart.repository.TrainRepository
@@ -12,6 +16,7 @@ import com.vacart.repository.TrainSearchManager
 import com.vacart.roomdatabase.SearchDao
 import com.vacart.roomdatabase.SearchEntity
 import com.vacart.roomdatabase.SearchEntityKey
+import com.vacart.roomdatabase.VacartCacheEntity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,6 +38,7 @@ class HomeViewModel @Inject constructor(
     var state: StateFlow<HomeState> = _state.asStateFlow()
 
     private var allTrains: List<TrainInfo> = emptyList()
+    private val gson = Gson()
 
     init {
         loadTrainList()
@@ -165,7 +171,14 @@ class HomeViewModel @Inject constructor(
 
     private fun getTrainComposition() {
         viewModelScope.launch {
-            _state.value = state.value.copy(isLoading = true, showError = false, errorMessage = null)
+            _state.value = state.value.copy(
+                isLoading = true,
+                showError = false,
+                errorMessage = null,
+                isOfflineData = false,
+                isStaleData = false,
+                offlineCachedAt = null
+            )
             when (val apiResult = trainRepository.getStationList(_state.value.trainNumber)) {
                 is Result.Success -> {
                     _state.value = _state.value.copy(stationList = apiResult.data)
@@ -182,10 +195,20 @@ class HomeViewModel @Inject constructor(
             }
 
             _state.value.boardingStation = _state.value.stationList?.stationList?.getOrNull(0)?.stationCode.toString()
-            val trainInfoRequest = TrainInfoRequest(_state.value.boardingStation, _state.value.journeyDate, _state.value.trainNumber)
+            val trainInfoRequest = TrainInfoRequest(
+                _state.value.boardingStation,
+                _state.value.journeyDate,
+                _state.value.trainNumber
+            )
             when (val apiResult = trainRepository.getTrainComposition(trainInfoRequest)) {
                 is Result.Success -> {
                     _state.value = _state.value.copy(trainComposition = apiResult.data, isLoading = false)
+                    // Background prefetch: fetch all class VacantBerths + all coach CoachCompositions
+                    prefetchVacartData(
+                        trainNumber = _state.value.trainNumber,
+                        journeyDate = _state.value.journeyDate,
+                        boardingStation = _state.value.boardingStation
+                    )
                 }
                 is Result.Error -> {
                     _state.value = _state.value.copy(
@@ -196,6 +219,67 @@ class HomeViewModel @Inject constructor(
                 }
                 else -> {}
             }
+        }
+    }
+
+    /**
+     * Fire-and-forget background prefetch of all VacantBerth (per class) and
+     * CoachComposition (per coach) responses. Bundles everything into one
+     * [VacartCacheEntity] and upserts it so offline lookups find it immediately.
+     */
+    private fun prefetchVacartData(trainNumber: String, journeyDate: String, boardingStation: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val composition = _state.value.trainComposition ?: return@launch
+            val classCodes = composition.cdd?.map { it.classCode } ?: return@launch
+
+            // Fetch VacantBerth for every class code
+            val allVacantBerths = mutableMapOf<String, VacantBerth>()
+            classCodes.forEach { cls ->
+                val result = trainRepository.getVacantBerth(
+                    VacantBerthRequest(
+                        boardingStation = boardingStation,
+                        chartType = 1,
+                        cls = cls,
+                        jDate = journeyDate,
+                        remoteStation = boardingStation,
+                        trainNo = trainNumber,
+                        trainSourceStation = boardingStation
+                    )
+                )
+                if (result is Result.Success) allVacantBerths[cls] = result.data
+            }
+
+            // Fetch CoachComposition for every coach name
+            val allCoaches = composition.cdd.map { it.coachName }
+            val allCoachCompositions = mutableMapOf<String, CoachComposition>()
+            allCoaches.forEach { coachName ->
+                val result = trainRepository.getCoachComposition(
+                    CoachCompositionRequest(
+                        boardingStation = boardingStation,
+                        cls = "",
+                        coach = coachName,
+                        jDate = journeyDate,
+                        remoteStation = boardingStation,
+                        trainNo = trainNumber,
+                        trainSourceStation = boardingStation
+                    )
+                )
+                if (result is Result.Success) allCoachCompositions[coachName] = result.data
+            }
+
+            // Persist everything as a single cache entry
+            val entity = VacartCacheEntity(
+                cacheKey = "${trainNumber}_${journeyDate}",
+                trainNumber = trainNumber,
+                journeyDate = journeyDate,
+                trainCompositionJson = gson.toJson(composition),
+                vacantBerthJson = gson.toJson(allVacantBerths),
+                coachCompositionJson = gson.toJson(allCoachCompositions),
+                boardingStation = boardingStation,
+                vacantBerthCachedAt = System.currentTimeMillis(),
+                cachedAt = System.currentTimeMillis()
+            )
+            trainRepository.saveVacartCache(entity)
         }
     }
 
@@ -239,16 +323,34 @@ class HomeViewModel @Inject constructor(
                 trainSourceStation = _state.value.boardingStation
             )
             _state.value = state.value.copy(isLoading = true)
+
             when (val apiResult = trainRepository.getVacantBerth(vacantBerthRequest)) {
                 is Result.Success -> {
                     _state.value = state.value.copy(
                         vacantBerth = apiResult.data,
                         vacantBerthList = apiResult.data.vbd,
-                        isLoading = false
+                        isLoading = false,
+                        isOfflineData = false,
+                        isStaleData = false,
+                        offlineCachedAt = null
                     )
                 }
                 is Result.Error -> {
-                    _state.value = state.value.copy(showError = true, isLoading = false)
+                    // Offline fallback: try to serve cached VacantBerth for this class
+                    val cacheKey = "${_state.value.trainNumber}_${_state.value.journeyDate}"
+                    val cached = trainRepository.getCachedVacantBerth(cacheKey, _state.value.selectedClassCode)
+                    if (cached != null) {
+                        _state.value = state.value.copy(
+                            vacantBerth = cached.data,
+                            vacantBerthList = cached.data.vbd,
+                            isLoading = false,
+                            isOfflineData = true,
+                            isStaleData = cached.isStale,
+                            offlineCachedAt = cached.cachedAt
+                        )
+                    } else {
+                        _state.value = state.value.copy(showError = true, isLoading = false)
+                    }
                 }
                 else -> {}
             }
@@ -271,12 +373,32 @@ class HomeViewModel @Inject constructor(
                 trainSourceStation = _state.value.boardingStation
             )
             _state.value = state.value.copy(isLoading = true)
+
             when (val apiResult = trainRepository.getCoachComposition(coachCompositionRequest)) {
                 is Result.Success -> {
-                    _state.value = state.value.copy(coachComposition = apiResult.data, isLoading = false)
+                    _state.value = state.value.copy(
+                        coachComposition = apiResult.data,
+                        isLoading = false,
+                        isOfflineData = false,
+                        isStaleData = false,
+                        offlineCachedAt = null
+                    )
                 }
                 is Result.Error -> {
-                    _state.value = state.value.copy(showError = true, isLoading = false)
+                    // Offline fallback: try to serve cached CoachComposition for this coach
+                    val cacheKey = "${_state.value.trainNumber}_${_state.value.journeyDate}"
+                    val cached = trainRepository.getCachedCoachComposition(cacheKey, _state.value.selectedCoach)
+                    if (cached != null) {
+                        _state.value = state.value.copy(
+                            coachComposition = cached.data,
+                            isLoading = false,
+                            isOfflineData = true,
+                            isStaleData = cached.isStale,
+                            offlineCachedAt = cached.cachedAt
+                        )
+                    } else {
+                        _state.value = state.value.copy(showError = true, isLoading = false)
+                    }
                 }
                 else -> {}
             }

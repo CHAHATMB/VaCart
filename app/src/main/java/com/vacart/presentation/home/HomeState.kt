@@ -29,8 +29,16 @@ data class HomeState(
     var selectedClassCode: String = "",
     var isAscending: Boolean = true,
     var lastSortedColumn: String = "",
-    var selectedCoach: String = ""
-){
+    var selectedCoach: String = "",
+
+    // Offline cache indicators
+    /** True when the currently displayed data is served from cache (not a live API response). */
+    var isOfflineData: Boolean = false,
+    /** Epoch millis of when the displayed cached data was originally fetched. */
+    var offlineCachedAt: Long? = null,
+    /** True when offline data is older than its intended TTL (shown as a stale warning). */
+    var isStaleData: Boolean = false,
+) {
     constructor(trainComposition: TrainComposition) : this(emptyList()) {
         this.trainComposition = trainComposition
     }
