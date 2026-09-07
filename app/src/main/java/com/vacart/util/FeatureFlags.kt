@@ -7,12 +7,5 @@ object FeatureFlags {
      * When false: Uses standard inline Dropdown menus.
      */
     var isBottomSheetSearchEnabled: Boolean = true
-
-    /**
-     * Feature Flag: Enables the Chat tab in bottom navigation.
-     * When true: Chat tab is shown in the bottom bar.
-     * When false: Chat tab is hidden.
-     */
-    var isChatEnabled: Boolean = false
 }
 

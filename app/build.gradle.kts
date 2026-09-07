@@ -4,7 +4,6 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("kotlin-kapt")
     id("com.google.dagger.hilt.android")
-    id("com.squareup.wire")
 }
 
 android {
@@ -54,9 +53,7 @@ kapt {
     correctErrorTypes = true
 }
 
-wire {
-    kotlin {}
-}
+
 
 dependencies {
     val room_version = "2.6.1"
@@ -116,11 +113,4 @@ dependencies {
 
     // required to avoid crash on Android 12 API 31
     implementation("androidx.work:work-runtime-ktx:2.7.1")
-
-    // ble
-    implementation("no.nordicsemi.android:ble:2.7.5")
-    implementation("no.nordicsemi.android:ble-ktx:2.7.5")
-    implementation("no.nordicsemi.android:ble-livedata:2.7.5")
-    implementation("no.nordicsemi.android:ble-common:2.7.5")
-    implementation("no.nordicsemi.android.common:permissions-ble:1.8.4")
 }

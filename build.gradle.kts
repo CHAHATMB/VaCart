@@ -5,17 +5,5 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
     id("com.google.dagger.hilt.android") version "2.51.1" apply false
 //    id("dagger.hilt.android.plugin") version "1.0.0-alpha03" apply false
-    id("com.squareup.wire") version "4.9.7" apply false
     id("org.jetbrains.kotlin.jvm") version "2.0.21" apply false
 }
-
-//buildscript {
-//    repositories {
-//        mavenCentral()
-//    }
-//    dependencies {
-//        classpath 'com.squareup.wire:wire-gradle-plugin:4.7.0'
-//    }
-//}
-//
-//apply plugin: 'com.squareup.wire'

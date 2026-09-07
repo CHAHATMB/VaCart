@@ -24,7 +24,6 @@ import androidx.navigation.compose.rememberNavController
 import com.vacart.navigation.BottomBarScreen
 import com.vacart.navigation.NavGraph
 import com.vacart.navigation.Routes
-import com.vacart.util.FeatureFlags
 
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.ui.unit.dp
@@ -53,11 +52,10 @@ fun MainScreen() {
 
 @Composable
 fun BottomBar(navController: NavHostController) {
-    val screens = listOfNotNull(
+    val screens = listOf(
         BottomBarScreen.Home,
         BottomBarScreen.Pnr,
-        BottomBarScreen.TrainTracker,
-        if (FeatureFlags.isChatEnabled) BottomBarScreen.Chat else null
+        BottomBarScreen.TrainTracker
     )
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -97,7 +95,6 @@ fun RowScope.AddItem(
                     when (screen) {
                         BottomBarScreen.Home -> Routes.HomeGraph.routes
                         BottomBarScreen.Pnr -> Routes.PnrGraph.routes
-                        BottomBarScreen.Chat -> Routes.ChatGraph.routes
                         BottomBarScreen.TrainTracker -> Routes.TrainTrackingGraph.routes
                         else -> screen.route
                     }

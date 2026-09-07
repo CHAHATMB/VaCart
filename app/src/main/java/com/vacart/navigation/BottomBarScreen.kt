@@ -14,6 +14,5 @@ sealed class BottomBarScreen(
 ) {
     object Home : BottomBarScreen(route = "home", title = "Home", icon = Icons.Default.Home)
     object Pnr : BottomBarScreen(route = "pnr", title = "PNR", icon = Icons.Default.ConfirmationNumber)
-    object Chat : BottomBarScreen(route = "chat", title = "Chat", icon = Icons.Default.Menu)
     object TrainTracker : BottomBarScreen(route = "traintracking", title = "Tracker", icon = Icons.Default.Train)
 }

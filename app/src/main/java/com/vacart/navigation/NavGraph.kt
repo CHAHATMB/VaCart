@@ -7,14 +7,12 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navigation
-import com.vacart.presentation.chat.Chat
 import com.vacart.presentation.home.screens.Home
 import com.vacart.presentation.home.HomeViewModel
 import com.vacart.presentation.home.screens.BerthDetail
 import com.vacart.presentation.home.screens.CoachDetail
 import com.vacart.presentation.home.screens.VacancyChart
 import com.vacart.presentation.pnr.PnrScreen
-import com.vacart.util.FeatureFlags
 
 @Composable
 fun NavGraph(navController: NavHostController){
@@ -59,16 +57,6 @@ fun NavGraph(navController: NavHostController){
                 }
                 val homeViewMode: HomeViewModel = hiltViewModel(parentEntry)
                 com.vacart.presentation.home.screens.TrainSchedule(navController, homeViewMode)
-            }
-        }
-        if (FeatureFlags.isChatEnabled) {
-            navigation(
-                startDestination = Routes.Chat.routes,
-                route = Routes.ChatGraph.routes
-            ) {
-                composable(Routes.Chat.routes){
-                    Chat()
-                }
             }
         }
         navigation(
