@@ -42,7 +42,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vacart.model.StationStop
 import com.vacart.model.StopStatus
+import com.vacart.model.TrainInfo
 import com.vacart.model.TrainRunningStatus
+import com.vacart.presentation.common.ClickableInputField
+import com.vacart.presentation.common.TrainSearchAutoCompleteField
+import com.vacart.presentation.common.TrainSearchBottomSheet
+import com.vacart.util.FeatureFlags
 import com.vacart.util.getFormattedDateForNtes
 import kotlinx.coroutines.launch
 
@@ -129,6 +134,7 @@ fun TrainTrackingScreen(viewModel: TrainTrackingViewModel) {
                 TrackingStep.INPUT -> TrainInputStep(
                     state = state,
                     onTrainNoChange = { viewModel.onEvent(TrainTrackingEvent.UpdateTrainNo(it)) },
+                    onSuggestionSelected = { viewModel.onEvent(TrainTrackingEvent.SelectTrainInfo(it)) },
                     onDateOptionSelected = { label, dateStr ->
                         viewModel.onEvent(TrainTrackingEvent.UpdateDateOption(label, dateStr))
                     },
@@ -154,9 +160,11 @@ fun TrainTrackingScreen(viewModel: TrainTrackingViewModel) {
 private fun TrainInputStep(
     state: TrainTrackingState,
     onTrainNoChange: (String) -> Unit,
+    onSuggestionSelected: (TrainInfo) -> Unit,
     onDateOptionSelected: (String, String) -> Unit,
     onSearch: () -> Unit
 ) {
+    var showTrainBottomSheet by remember { mutableStateOf(false) }
     var showDateBottomSheet by remember { mutableStateOf(false) }
     val dateList = arrayOf("2 days ago", "Yesterday", "Today", "Tomorrow")
 
@@ -187,36 +195,59 @@ private fun TrainInputStep(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Enter train number and select journey date",
+                    text = "Enter train number or name and select journey date",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(20.dp))
 
-                OutlinedTextField(
-                    value = state.trainNoInput,
-                    onValueChange = { if (it.length <= 10) onTrainNoChange(it) },
-                    label = { Text("Train Number / Name") },
-                    placeholder = { Text("e.g. 12626 or 00112") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Train,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    trailingIcon = {
-                        if (state.trainNoInput.isNotEmpty()) {
-                            IconButton(onClick = { onTrainNoChange("") }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear")
+                // Train Input Field (Bottom Sheet vs Dropdown Feature Flag)
+                if (FeatureFlags.isBottomSheetSearchEnabled) {
+                    ClickableInputField(
+                        value = state.selectedTrain,
+                        label = "Train Number / Name",
+                        placeholder = "Tap to search train number or name",
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Train,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        trailingIcon = {
+                            if (state.selectedTrain.isNotEmpty()) {
+                                IconButton(onClick = { onTrainNoChange("") }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Clear train",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Search train",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
+                        },
+                        isError = state.errorMessage != null && state.selectedTrain.isEmpty(),
+                        onClick = {
+                            showTrainBottomSheet = true
                         }
-                    },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp)
-                )
+                    )
+                } else {
+                    TrainSearchAutoCompleteField(
+                        searchQuery = state.selectedTrain,
+                        filteredTrains = state.filteredTrains,
+                        showError = state.errorMessage != null && state.selectedTrain.isEmpty(),
+                        onValueChange = onTrainNoChange,
+                        onSuggestionSelected = onSuggestionSelected,
+                        onClearInput = {
+                            onTrainNoChange("")
+                        }
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -323,6 +354,19 @@ private fun TrainInputStep(
         }
     }
 
+    if (showTrainBottomSheet) {
+        TrainSearchBottomSheet(
+            searchQuery = state.selectedTrain,
+            filteredTrains = state.filteredTrains,
+            onSearchQueryChange = onTrainNoChange,
+            onSuggestionSelected = { trainInfo ->
+                onSuggestionSelected(trainInfo)
+                showTrainBottomSheet = false
+            },
+            onDismiss = { showTrainBottomSheet = false }
+        )
+    }
+
     if (showDateBottomSheet) {
         TrackingDateBottomSheet(
             state = state,
@@ -334,36 +378,6 @@ private fun TrainInputStep(
                 showDateBottomSheet = false
             },
             onDismiss = { showDateBottomSheet = false }
-        )
-    }
-}
-
-@Composable
-private fun ClickableInputField(
-    value: String,
-    label: String,
-    placeholder: String,
-    leadingIcon: @Composable () -> Unit,
-    trailingIcon: @Composable (() -> Unit)? = null,
-    onClick: () -> Unit
-) {
-    Box(modifier = Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label) },
-            placeholder = { Text(placeholder) },
-            leadingIcon = leadingIcon,
-            trailingIcon = trailingIcon,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            singleLine = true
-        )
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clickable { onClick() }
         )
     }
 }

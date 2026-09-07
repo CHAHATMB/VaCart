@@ -171,6 +171,10 @@ class HomeViewModel @Inject constructor(
 
     private fun getTrainComposition() {
         viewModelScope.launch {
+            val trainNumber = _state.value.trainNumber
+            val journeyDate = _state.value.journeyDate
+            val cacheKey = "${trainNumber}_${journeyDate}"
+
             _state.value = state.value.copy(
                 isLoading = true,
                 showError = false,
@@ -179,48 +183,78 @@ class HomeViewModel @Inject constructor(
                 isStaleData = false,
                 offlineCachedAt = null
             )
-            when (val apiResult = trainRepository.getStationList(_state.value.trainNumber)) {
+
+            // Step 1: Get station list (needed for boardingStation)
+            when (val apiResult = trainRepository.getStationList(trainNumber)) {
                 is Result.Success -> {
                     _state.value = _state.value.copy(stationList = apiResult.data)
                 }
                 is Result.Error -> {
-                    _state.value = _state.value.copy(
-                        showError = true,
-                        errorMessage = apiResult.exception.message,
-                        isLoading = false
-                    )
+                    // Station-list API failed (likely offline) — try full cache entry
+                    val cached = trainRepository.getCachedVacartEntry(cacheKey)
+                    if (cached != null) {
+                        _state.value = _state.value.copy(
+                            trainComposition = cached.trainComposition,
+                            boardingStation = cached.boardingStation,
+                            isLoading = false,
+                            isOfflineData = true,
+                            isStaleData = cached.isStale,
+                            offlineCachedAt = cached.cachedAt
+                        )
+                    } else {
+                        _state.value = _state.value.copy(
+                            showError = true,
+                            errorMessage = apiResult.exception.message,
+                            isLoading = false
+                        )
+                    }
                     return@launch
                 }
                 else -> {}
             }
 
+            // Step 2: Derive boarding station, fetch train composition
             _state.value.boardingStation = _state.value.stationList?.stationList?.getOrNull(0)?.stationCode.toString()
             val trainInfoRequest = TrainInfoRequest(
                 _state.value.boardingStation,
-                _state.value.journeyDate,
-                _state.value.trainNumber
+                journeyDate,
+                trainNumber
             )
             when (val apiResult = trainRepository.getTrainComposition(trainInfoRequest)) {
                 is Result.Success -> {
                     _state.value = _state.value.copy(trainComposition = apiResult.data, isLoading = false)
                     // Background prefetch: fetch all class VacantBerths + all coach CoachCompositions
                     prefetchVacartData(
-                        trainNumber = _state.value.trainNumber,
-                        journeyDate = _state.value.journeyDate,
+                        trainNumber = trainNumber,
+                        journeyDate = journeyDate,
                         boardingStation = _state.value.boardingStation
                     )
                 }
                 is Result.Error -> {
-                    _state.value = _state.value.copy(
-                        showError = true,
-                        errorMessage = apiResult.exception.message,
-                        isLoading = false
-                    )
+                    // Train-composition API failed — try cache before showing error
+                    val cached = trainRepository.getCachedVacartEntry(cacheKey)
+                    if (cached != null) {
+                        _state.value = _state.value.copy(
+                            trainComposition = cached.trainComposition,
+                            boardingStation = cached.boardingStation,
+                            isLoading = false,
+                            isOfflineData = true,
+                            isStaleData = cached.isStale,
+                            offlineCachedAt = cached.cachedAt
+                        )
+                    } else {
+                        _state.value = _state.value.copy(
+                            showError = true,
+                            errorMessage = apiResult.exception.message,
+                            isLoading = false
+                        )
+                    }
                 }
                 else -> {}
             }
         }
     }
+
 
     /**
      * Fire-and-forget background prefetch of all VacantBerth (per class) and

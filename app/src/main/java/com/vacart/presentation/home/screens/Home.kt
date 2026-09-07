@@ -59,6 +59,9 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import com.vacart.model.TrainInfo
 import com.vacart.navigation.Routes
+import com.vacart.presentation.common.ClickableInputField
+import com.vacart.presentation.common.TrainSearchAutoCompleteField
+import com.vacart.presentation.common.TrainSearchBottomSheet
 import com.vacart.presentation.home.HomeEvent
 import com.vacart.presentation.home.HomeState
 import com.vacart.presentation.home.HomeViewModel
@@ -180,8 +183,9 @@ fun Home(
                         )
                     } else {
                         TrainSearchAutoCompleteField(
-                            state = state,
-                            showError = showError,
+                            searchQuery = state.selectedTrain,
+                            filteredTrains = state.filteredTrains,
+                            showError = showError && state.selectedTrain.isEmpty(),
                             onValueChange = { input ->
                                 showError = false
                                 event(HomeEvent.updateTrainNumber(input))
@@ -339,7 +343,8 @@ fun Home(
         // Train Search Bottom Sheet
         if (showTrainBottomSheet) {
             TrainSearchBottomSheet(
-                state = state,
+                searchQuery = state.selectedTrain,
+                filteredTrains = state.filteredTrains,
                 onSearchQueryChange = { input ->
                     event(HomeEvent.updateTrainNumber(input))
                 },
@@ -371,204 +376,7 @@ fun Home(
     }
 }
 
-@Composable
-fun ClickableInputField(
-    value: String,
-    label: String,
-    placeholder: String,
-    leadingIcon: @Composable () -> Unit,
-    trailingIcon: @Composable (() -> Unit)? = null,
-    isError: Boolean,
-    onClick: () -> Unit
-) {
-    Box(modifier = Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label) },
-            placeholder = { Text(placeholder) },
-            leadingIcon = leadingIcon,
-            trailingIcon = trailingIcon,
-            isError = isError,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            singleLine = true
-        )
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clickable { onClick() }
-        )
-    }
-}
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TrainSearchBottomSheet(
-    state: HomeState,
-    onSearchQueryChange: (String) -> Unit,
-    onSuggestionSelected: (TrainInfo) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Train,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Search Train",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = state.selectedTrain,
-                onValueChange = onSearchQueryChange,
-                placeholder = { Text("Type train number or name (e.g. 22637 or West Coast)") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                },
-                trailingIcon = {
-                    if (state.selectedTrain.isNotEmpty()) {
-                        IconButton(onClick = { onSearchQueryChange("") }) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Clear",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                singleLine = true
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (state.selectedTrain.length < 2) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Type at least 2 characters to search",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else if (state.filteredTrains.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "No trains found matching \"${state.selectedTrain}\"",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 400.dp)
-                ) {
-                    items(state.filteredTrains) { trainInfo ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainer
-                            ),
-                            onClick = {
-                                onSuggestionSelected(trainInfo)
-                            }
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Card(
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                                    )
-                                ) {
-                                    Text(
-                                        text = trainInfo.trainNumber,
-                                        style = MaterialTheme.typography.labelLarge.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                                        ),
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Text(
-                                    text = trainInfo.trainName,
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontWeight = FontWeight.Medium
-                                    ),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -666,99 +474,7 @@ fun DateSelectionBottomSheet(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun TrainSearchAutoCompleteField(
-    state: HomeState,
-    showError: Boolean,
-    onValueChange: (String) -> Unit,
-    onSuggestionSelected: (TrainInfo) -> Unit,
-    onClearInput: () -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
 
-    ExposedDropdownMenuBox(
-        expanded = expanded && state.filteredTrains.isNotEmpty(),
-        onExpandedChange = { expanded = it },
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        OutlinedTextField(
-            value = state.selectedTrain,
-            onValueChange = { input ->
-                onValueChange(input)
-                expanded = true
-            },
-            label = { Text(text = "Train Number / Name") },
-            placeholder = { Text(text = "Search e.g. 22637 or West Coast") },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Train,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            },
-            trailingIcon = {
-                if (state.selectedTrain.isNotEmpty()) {
-                    IconButton(onClick = {
-                        onClearInput()
-                        expanded = false
-                    }) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Clear search",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            },
-            isError = showError && state.selectedTrain.isEmpty(),
-            modifier = Modifier
-                .menuAnchor()
-                .fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            singleLine = true
-        )
-
-        if (state.filteredTrains.isNotEmpty()) {
-            ExposedDropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                modifier = Modifier.heightIn(max = 280.dp)
-            ) {
-                state.filteredTrains.forEach { trainInfo ->
-                    DropdownMenuItem(
-                        text = {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = trainInfo.trainNumber,
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = trainInfo.trainName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        },
-                        onClick = {
-                            onSuggestionSelected(trainInfo)
-                            expanded = false
-                        }
-                    )
-                }
-            }
-        }
-    }
-}
 
 @Composable
 fun RecentSearchItem(search: SearchEntity, onItemClick: () -> Unit) {

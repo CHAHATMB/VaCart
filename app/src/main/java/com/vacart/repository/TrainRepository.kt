@@ -132,6 +132,23 @@ class TrainRepository @Inject constructor(
         return CachedResult(coach, cachedAt = entity.cachedAt, isStale = age > COMPOSITION_TTL_MS)
     }
 
+    /**
+     * Returns the cached [TrainComposition] together with the [boardingStation] that
+     * was recorded at prefetch time. Both are needed to restore the full VacancyChart
+     * offline state so subsequent VacantBerth / CoachComposition cache lookups work.
+     */
+    suspend fun getCachedVacartEntry(cacheKey: String): CachedVacartEntry? {
+        val entity = vacartCacheDao.getByKey(cacheKey) ?: return null
+        val composition = gson.fromJson(entity.trainCompositionJson, TrainComposition::class.java)
+        val age = System.currentTimeMillis() - entity.cachedAt
+        return CachedVacartEntry(
+            trainComposition = composition,
+            boardingStation = entity.boardingStation,
+            cachedAt = entity.cachedAt,
+            isStale = age > COMPOSITION_TTL_MS
+        )
+    }
+
     // ---------------------------------------------------------------------------
     // Cache write helper
     // ---------------------------------------------------------------------------
@@ -165,6 +182,19 @@ class TrainRepository @Inject constructor(
 /** Wraps a cached value together with its age metadata. */
 data class CachedResult<T>(
     val data: T,
+    val cachedAt: Long,
+    val isStale: Boolean
+)
+
+/**
+ * Bundles everything needed to restore the VacancyChart offline state from a single
+ * cache lookup: the [TrainComposition] and the [boardingStation] that was recorded at
+ * prefetch time. The boardingStation is required for subsequent VacantBerth /
+ * CoachComposition cache reads without needing to re-hit the station-list API.
+ */
+data class CachedVacartEntry(
+    val trainComposition: com.vacart.model.TrainComposition,
+    val boardingStation: String,
     val cachedAt: Long,
     val isStale: Boolean
 )

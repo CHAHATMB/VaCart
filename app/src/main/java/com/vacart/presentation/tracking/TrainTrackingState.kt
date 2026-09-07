@@ -1,10 +1,13 @@
 package com.vacart.presentation.tracking
 
+import com.vacart.model.TrainInfo
 import com.vacart.model.TrainRunningStatus
 import com.vacart.util.getFormattedDateForNtes
 
 data class TrainTrackingState(
     val trainNoInput: String = "",
+    val selectedTrain: String = "",
+    val filteredTrains: List<TrainInfo> = emptyList(),
     val dateLabel: String = "Today",
     val dateInput: String = getFormattedDateForNtes(0),
     val isLoading: Boolean = false,
