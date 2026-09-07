@@ -1,22 +1,22 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
     id("kotlin-kapt")
     id("com.google.dagger.hilt.android")
-//    id("dagger.hilt.android.plugin")
     id("com.squareup.wire")
 }
 
 android {
-    namespace = "com.example.vacart"
-    compileSdk = 34
+    namespace = "com.vacart"
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.vacart"
+        applicationId = "com.vacart"
         minSdk = 28
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        targetSdk = 36
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -25,7 +25,7 @@ android {
     }
 
     buildTypes {
-        release {
+        release { 
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -42,9 +42,7 @@ android {
     }
     buildFeatures {
         compose = true
-    }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.1"
+        buildConfig = true
     }
     packaging {
         resources {
@@ -61,10 +59,13 @@ wire {
 }
 
 dependencies {
-
-    implementation("androidx.room:room-ktx:2.6.1")
+    val room_version = "2.6.1"
     val nav_version = "2.7.6"
     val lifecycle_version = "2.7.0"
+
+    implementation("androidx.room:room-ktx:2.6.1")
+    implementation("androidx.room:room-runtime:$room_version")
+    kapt("androidx.room:room-compiler:$room_version")
 
     implementation("androidx.core:core-ktx:1.13.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:$lifecycle_version")
@@ -87,9 +88,12 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1-Beta")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1-Beta")
     implementation("com.squareup.okhttp3:logging-interceptor:4.9.1")
+    implementation("com.squareup.okhttp3:okhttp-urlconnection:4.9.1")
+    // okhttp-urlconnection & jsoup removed: HTML scraping replaced by NTES JSON API
     implementation("org.apache.commons:commons-text:1.9")
 
     implementation("androidx.compose.material:material:1.6.2")
+    implementation("androidx.compose.material:material-icons-extended:1.6.8")
 
     // navigation
     implementation("androidx.navigation:navigation-compose:$nav_version")
@@ -100,10 +104,10 @@ dependencies {
 //    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycle_version")
 //    implementation("androidx.lifecycle:lifecycle-extensions:$lifecycle_version")
 
-    implementation("com.google.dagger:hilt-android:2.48")
-    kapt("com.google.dagger:hilt-android-compiler:2.48")
+    implementation("com.google.dagger:hilt-android:2.51.1")
+    kapt("com.google.dagger:hilt-android-compiler:2.51.1")
 //    kapt("androidx.hilt:hilt-compiler:1.0.0-alpha03")
-    kapt("com.google.dagger:hilt-compiler:2.48")
+    kapt("com.google.dagger:hilt-compiler:2.51.1")
     implementation("androidx.hilt:hilt-navigation-fragment:1.2.0")
 //    implementation("androidx.hilt:hilt-lifecycle-viewmodel:1.0.0-alpha03")
     implementation("androidx.hilt:hilt-work:1.0.0")
@@ -119,7 +123,4 @@ dependencies {
     implementation("no.nordicsemi.android:ble-livedata:2.7.5")
     implementation("no.nordicsemi.android:ble-common:2.7.5")
     implementation("no.nordicsemi.android.common:permissions-ble:1.8.4")
-
-
-
 }
