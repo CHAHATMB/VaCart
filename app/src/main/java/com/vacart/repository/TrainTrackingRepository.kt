@@ -126,27 +126,8 @@ class TrainTrackingRepository @Inject constructor() {
 
             val decryptedJson = NtesCrypto.decryptResponse(hexEncrypted)
             if (BuildConfig.DEBUG) {
-                // Log top-level keys (safe, small) + write full JSON to file
-                try {
-                    val topObj = JSONObject(decryptedJson)
-                    val keys = topObj.keys().asSequence().toList()
-                    Log.d("NtesApi", "Top-level keys [${queryString.substringAfter("subService=")}]: $keys")
-                    // Log first station entry if present
-                    val arr = topObj.optJSONArray("stationList")
-                        ?: topObj.optJSONArray("TrainInfo")
-                        ?: topObj.optJSONArray("trainInfo")
-                        ?: topObj.optJSONArray("StationList")
-                    if (arr != null && arr.length() > 0) {
-                        val firstStn = arr.getJSONObject(0)
-                        Log.d("NtesApi", "First station keys: ${firstStn.keys().asSequence().toList()}")
-                        Log.d("NtesApi", "First station data: ${firstStn}")
-                    } else {
-                        // No station array found - log full response (truncated to 3000 chars)
-                        Log.d("NtesApi", "Full response (3000c): ${decryptedJson.take(3000)}")
-                    }
-                } catch (e: Exception) {
-                    Log.e("NtesApi", "Debug log failed", e)
-                }
+                val endpoint = queryString.substringAfter("subService=").substringBefore("&")
+                Log.d("NtesApi", "Response [$endpoint]: ${decryptedJson.take(3000)}")
             }
 
             val parsedData = parse(JSONObject(decryptedJson))
@@ -161,15 +142,124 @@ class TrainTrackingRepository @Inject constructor() {
     // ── JSON Parsers ──────────────────────────────────────────────────────────
 
     /**
-     * Parses the `ShowFullRunJson` decrypted JSON response into [TrainRunningStatus].
+     * Parses the `ShowFullRunJson` decrypted response into [TrainRunningStatus].
      *
-     * Expected top-level keys (representative — actual keys confirmed from NTES APK sources):
-     *  - `trainName` / `trainNo`
-     *  - `currentStatus` or `position`
-     *  - `updateTime` / `updatedOn`
-     *  - `startDate`
-     *  - `stationList` — array of station objects
+     * Field names match the documented NTES API response exactly:
+     * TN, TNM, LUPDFULL, LUPDT, STD, SRC, SRCN, DSTN, DSTNN, TTLDIST,
+     * LDEL, LEVNT, LSTNN, CPOS, STNS.
      */
+    private fun parseShowFullRunJson(json: JSONObject): TrainRunningStatus {
+        val lastEvent = json.optString("LEVNT")
+        val lastStationName = json.optString("LSTNN")
+        val currentStatus = when {
+            lastEvent.isNotBlank() && lastStationName.isNotBlank() -> "$lastEvent ($lastStationName)"
+            lastEvent.isNotBlank() -> lastEvent
+            else -> json.optString("CPOS")
+        }
+
+        val stationsArray = json.optJSONArray("STNS") ?: JSONArray()
+        val stops = buildList {
+            for (i in 0 until stationsArray.length()) {
+                add(parseStationStop(stationsArray.getJSONObject(i)))
+            }
+        }
+
+        return TrainRunningStatus(
+            trainNumber       = json.optString("TN"),
+            trainName         = json.optString("TNM"),
+            currentStatus     = currentStatus,
+            lastUpdatedOn     = json.optString("LUPDFULL").ifBlank { json.optString("LUPDT") },
+            startDate         = json.optString("STD"),
+            stops             = stops,
+            sourceStation     = json.optString("SRC"),
+            sourceStationName = json.optString("SRCN"),
+            destStation       = json.optString("DSTN"),
+            destStationName   = json.optString("DSTNN"),
+            totalDistance     = json.optString("TTLDIST"),
+            currentDelayMins  = parseDelayToMins(json.optString("LDEL"))
+        )
+    }
+
+    /**
+     * Parses a single station object from the `STNS` array.
+     *
+     * Field names per documented API: SC, SN, SHN, STA, ETA, DARR, STD, ETD,
+     * DDEP, PF, DIST, DF, ISA, ISD, arrivalCoachPosition, arrivalCoachClass,
+     * arrPWDCoachPosition.
+     */
+    private fun parseStationStop(stn: JSONObject): StationStop {
+        val isa = if (stn.has("ISA")) stn.optBoolean("ISA") else null
+        val isd = if (stn.has("ISD")) stn.optBoolean("ISD") else null
+
+        val schArr = stn.optString("STA").let { if (it.equals("Source", ignoreCase = true)) "" else it }
+        val actArr = stn.optString("ETA").let { if (it.equals("Source", ignoreCase = true)) "" else it }
+        val arrDelay = stn.optString("DARR")
+        val schDep   = stn.optString("STD")
+        val actDep   = stn.optString("ETD")
+        val depDelay = stn.optString("DDEP")
+
+        val platformRaw = stn.optString("PF")
+        val platform = if (platformRaw.isNotBlank() && !platformRaw.startsWith("PF", ignoreCase = true)) {
+            "PF $platformRaw"
+        } else platformRaw
+
+        val distVal = stn.optString("DIST")
+        val distance = if (distVal.isNotBlank() && distVal != "0" && !distVal.contains("km", ignoreCase = true)) {
+            "$distVal KMs"
+        } else distVal
+
+        val isLive = isa == true && isd == false
+
+        val stopStatus = when {
+            isd == true          -> StopStatus.DEPARTED
+            isa == true          -> StopStatus.AT_STATION
+            actDep.isNotBlank()  -> StopStatus.DEPARTED
+            actArr.isNotBlank()  -> StopStatus.AT_STATION
+            else                 -> StopStatus.UPCOMING
+        }
+
+        return StationStop(
+            stationCode       = stn.optString("SC"),
+            stationName       = stn.optString("SN"),
+            scheduledArrival  = schArr,
+            actualArrival     = actArr,
+            arrivalDelay      = arrDelay,
+            scheduledDeparture = schDep,
+            actualDeparture   = actDep,
+            departureDelay    = depDelay,
+            platform          = platform,
+            distance          = distance,
+            isStop            = true,
+            delayMinutes      = parseDelayToMins(arrDelay) ?: parseDelayToMins(depDelay),
+            haltMinutes       = null,
+            dayCount          = stn.optInt("DF", 0),
+            status            = stopStatus,
+            isLiveLocation    = isLive,
+            updatedOn         = "",
+            liveStatusText    = "",
+            coachPositions    = buildCoachPositions(
+                positionStr = stn.optString("arrivalCoachPosition"),
+                classStr    = stn.optString("arrivalCoachClass")
+            ),
+            divyangjanInfo    = stn.optString("arrPWDCoachPosition").let { pwd ->
+                if (pwd.isNotBlank()) "Divyangjan Coach at #$pwd" else ""
+            }
+        )
+    }
+
+    private fun buildCoachPositions(positionStr: String, classStr: String): List<CoachPositionInfo> {
+        if (positionStr.isBlank()) return emptyList()
+        val positions = positionStr.split("-").map { it.trim() }
+        val classes   = classStr.split("-").map { it.trim() }
+        return positions.mapIndexed { index, name ->
+            CoachPositionInfo(
+                coachType     = classes.getOrElse(index) { "" },
+                coachName     = name,
+                positionIndex = (index + 1).toString()
+            )
+        }
+    }
+
     private fun parseDelayToMins(delayStr: String?): Int? {
         if (delayStr.isNullOrBlank()) return null
         val trimmed = delayStr.trim()
@@ -183,323 +273,37 @@ class TrainTrackingRepository @Inject constructor() {
         }
     }
 
-    private fun parseShowFullRunJson(json: JSONObject): TrainRunningStatus {
-        val trnRunCls = json.optJSONObject("trnRunCls")
-        val trainObj  = json.optJSONObject("train")
+    private fun parseTrainInstances(json: JSONObject): List<TrainInstance> {
+        val trainNo  = json.optString("TrainNo")
+        val trainName = json.optString("TrainName")
+        val srcCode  = json.optString("Src")
+        val srcName  = json.optString("SrcName")
+        val dstnCode = json.optString("Dstn")
+        val dstnName = json.optString("DstnName")
 
-        val trainNumber = json.optString("TN").ifBlank { null }
-            ?: trnRunCls?.optString("trainNumber")?.ifBlank { null }
-            ?: trainObj?.optString("TrainNumber")?.ifBlank { null }
-            ?: json.optString("trainNo").ifBlank { json.optString("trainNumber") }
+        val arr: JSONArray = json.optJSONArray("vInstanceList") ?: return emptyList()
 
-        val trainName = json.optString("TNM").ifBlank { null }
-            ?: trnRunCls?.optString("TrainName")?.ifBlank { null }
-            ?: trainObj?.optString("TrainName")?.ifBlank { null }
-            ?: json.optString("trainName")
-
-        val lastUpdatedOn = json.optString("LUPDFULL").ifBlank { null }
-            ?: json.optString("LUPDT")?.ifBlank { null }
-            ?: json.optString("LASTUPD")?.ifBlank { null }
-            ?: trnRunCls?.optString("LastUpdateFull")?.ifBlank { null }
-            ?: trnRunCls?.optString("LastUpdate")?.ifBlank { null }
-            ?: json.optString("updateTime").ifBlank { json.optString("updatedOn") }
-
-        val startDate = json.optString("STD").ifBlank { null }
-            ?: trnRunCls?.optString("StartDate")?.ifBlank { null }
-            ?: trainObj?.optString("StartDate")?.ifBlank { null }
-            ?: json.optString("startDate").ifBlank { json.optString("journeyDate") }
-
-        val sourceStation = json.optString("SRC").ifBlank { null }
-            ?: trnRunCls?.optString("Source")?.ifBlank { null }
-            ?: trainObj?.optString("Source")?.ifBlank { null }
-            ?: json.optString("srcStn").ifBlank { json.optString("source") }
-
-        val sourceStationName = json.optString("SRCN").ifBlank { null }
-            ?: trnRunCls?.optString("SourceName")?.ifBlank { null }
-            ?: trainObj?.optString("SourceName")?.ifBlank { null }
-            ?: json.optString("srcStnName").ifBlank { json.optString("sourceName") }
-
-        val destStation = json.optString("DSTN").ifBlank { null }
-            ?: trnRunCls?.optString("Destination")?.ifBlank { null }
-            ?: trainObj?.optString("Destination")?.ifBlank { null }
-            ?: json.optString("destStn").ifBlank { json.optString("destination") }
-
-        val destStationName = json.optString("DSTNN").ifBlank { null }
-            ?: trnRunCls?.optString("DestinationName")?.ifBlank { null }
-            ?: trainObj?.optString("DestinationName")?.ifBlank { null }
-            ?: json.optString("destStnName").ifBlank { json.optString("destinationName") }
-
-        val totalDistance = json.optString("TTLDIST").ifBlank { null }
-            ?: trnRunCls?.optString("TotalTrainDistance")?.ifBlank { null }
-            ?: json.optString("totalDist").ifBlank { json.optString("totalDistance") }
-
-        val trainType = trainObj?.optString("TypeDesc")?.ifBlank { null }
-            ?: trainObj?.optString("Type")?.ifBlank { null }
-            ?: json.optString("trainType")
-
-        val classes = trnRunCls?.optString("jsArrivalCoachClass")?.ifBlank { null }
-            ?: trnRunCls?.optString("jsDepartureCoachClass")?.ifBlank { null }
-            ?: json.optString("classes")
-
-        val lastEvent = json.optString("LEVNT").ifBlank { null }
-            ?: trnRunCls?.optString("LastEvent")?.ifBlank { "" } ?: ""
-        val lastStationName = json.optString("LSTNN").ifBlank { null }
-            ?: trnRunCls?.optString("LastStationName")?.ifBlank { "" } ?: ""
-        val currentStatus = if (lastEvent.isNotBlank()) {
-            if (lastStationName.isNotBlank() && !lastEvent.contains(lastStationName, ignoreCase = true)) {
-                "$lastEvent ($lastStationName)"
-            } else lastEvent
-        } else {
-            json.optString("currentStatus").ifBlank {
-                json.optString("position").ifBlank { json.optString("trainStatus") }
-            }
-        }
-
-        val ldelStr = json.optString("LDEL")
-        val currentDelayMins = parseDelayToMins(ldelStr)
-            ?: trnRunCls?.optString("DelayArrMin")?.toIntOrNull()
-            ?: trnRunCls?.optString("DelayDepMin")?.toIntOrNull()
-            ?: json.optInt("currentDelay", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
-            ?: json.optInt("delayMins", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
-
-        val stationsArray: JSONArray = json.optJSONArray("STNS")
-            ?: json.optJSONArray("fullRunningStns")
-            ?: json.optJSONArray("stationList")
-            ?: json.optJSONArray("stations")
-            ?: JSONArray()
-
-        val stops = mutableListOf<StationStop>()
-        for (i in 0 until stationsArray.length()) {
-            val stnObj = stationsArray.getJSONObject(i)
-            // Main stopping station
-            stops.add(parseStationStop(stnObj, isStopOverride = true))
-
-            // Non-stopping passing stations under WTTSTNS
-            val wttArray = stnObj.optJSONArray("WTTSTNS")
-            if (wttArray != null) {
-                for (j in 0 until wttArray.length()) {
-                    val wttObj = wttArray.getJSONObject(j)
-                    stops.add(parseStationStop(wttObj, isStopOverride = false))
-                }
-            }
-        }
-
-        return TrainRunningStatus(
-            trainNumber       = trainNumber,
-            trainName         = trainName,
-            currentStatus     = currentStatus,
-            lastUpdatedOn     = lastUpdatedOn,
-            startDate         = startDate,
-            stops             = stops,
-            sourceStation     = sourceStation,
-            sourceStationName = sourceStationName,
-            destStation       = destStation,
-            destStationName   = destStationName,
-            totalDistance     = totalDistance,
-            trainType         = trainType,
-            classes           = classes,
-            currentDelayMins  = currentDelayMins
-        )
-    }
-
-    private fun parseStationStop(stn: JSONObject, isStopOverride: Boolean? = null): StationStop {
-        val stationCode = stn.optString("SC").ifBlank {
-            stn.optString("station").ifBlank {
-                stn.optString("stnCode").ifBlank { stn.optString("stationCode") }
-            }
-        }
-        val stationName = stn.optString("SN").ifBlank {
-            stn.optString("stationName").ifBlank {
-                stn.optString("stnName")
-            }
-        }
-
-        val schArrRaw = stn.optString("STA").ifBlank {
-            stn.optString("STA_HHMM").ifBlank {
-                stn.optString("schArrTime").ifBlank { stn.optString("scheduledArrival") }
-            }
-        }
-        val schArr = if (schArrRaw.equals("Source", ignoreCase = true)) "" else schArrRaw
-
-        val actArrRaw = stn.optString("ETA").ifBlank {
-            stn.optString("ETA_HHMM").ifBlank {
-                stn.optString("actArrTime").ifBlank { stn.optString("actualArrival") }
-            }
-        }
-        val actArr = if (actArrRaw.equals("Source", ignoreCase = true)) "" else actArrRaw
-
-        val arrDelay = stn.optString("DARR").ifBlank {
-            stn.optString("delayArr").ifBlank { stn.optString("arrDelay") }
-        }
-
-        val schDep = stn.optString("STD").ifBlank {
-            stn.optString("STD_HHMM").ifBlank {
-                stn.optString("schDepTime").ifBlank { stn.optString("scheduledDeparture") }
-            }
-        }
-        val actDep = stn.optString("ETD").ifBlank {
-            stn.optString("ETD_HHMM").ifBlank {
-                stn.optString("actDepTime").ifBlank { stn.optString("actualDeparture") }
-            }
-        }
-        val depDelay = stn.optString("DDEP").ifBlank {
-            stn.optString("delayDep").ifBlank { stn.optString("depDelay") }
-        }
-
-        val platformRaw = stn.optString("PF").ifBlank {
-            stn.optString("pfNumber").ifBlank {
-                stn.optString("pfNo").ifBlank { stn.optString("platform") }
-            }
-        }
-        val platform = if (platformRaw.isNotBlank() && !platformRaw.startsWith("PF", ignoreCase = true)) {
-            "PF $platformRaw"
-        } else platformRaw
-
-        val distOpt = stn.opt("DIST") ?: stn.opt("distanceFromSource") ?: stn.opt("distance")
-        val distVal = distOpt?.toString() ?: ""
-        val distance = if (distVal.isNotBlank() && !distVal.contains("km", ignoreCase = true)) {
-            "$distVal KMs"
-        } else distVal
-
-        val isStop = isStopOverride ?: run {
-            val stopTypeRaw = stn.optString("haltType").ifBlank { stn.optString("stopType") }
-            stopTypeRaw.equals("S", ignoreCase = true) || stopTypeRaw.isBlank() || stn.optBoolean("isHalt", true)
-        }
-
-        val delayMins = parseDelayToMins(arrDelay)
-            ?: parseDelayToMins(depDelay)
-            ?: stn.optInt("delayMins", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
-
-        val haltMins = stn.optInt("haltTime", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
-            ?: stn.optInt("halt", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE }
-
-        val dayCount = stn.optInt("DF", 0).takeIf { it >= 0 }
-            ?: stn.optInt("dayCount", 0)
-
-        val isa = if (stn.has("ISA")) stn.optBoolean("ISA") else null
-        val isd = if (stn.has("ISD")) stn.optBoolean("ISD") else null
-
-        val liveStatusText = stn.optString("trainActStatus").ifBlank {
-            stn.optString("liveStatus")
-        }
-        val updatedOn = stn.optString("updatedOn").ifBlank { stn.optString("updateTime") }
-
-        val isLive = (isa == true && isd == false) ||
-                stn.optBoolean("isCurrent", false) ||
-                stn.optBoolean("isLive", false)
-
-        val coachPositions = mutableListOf<CoachPositionInfo>()
-        val arrivalCoachPos = stn.optString("arrivalCoachPosition")
-        val arrivalCoachClass = stn.optString("arrivalCoachClass")
-        if (arrivalCoachPos.isNotBlank()) {
-            val posTokens = arrivalCoachPos.split("-").map { it.trim() }
-            val classTokens = arrivalCoachClass.split("-").map { it.trim() }
-            posTokens.forEachIndexed { index, name ->
-                val cls = classTokens.getOrNull(index) ?: ""
-                coachPositions.add(
-                    CoachPositionInfo(
-                        coachType = cls,
-                        coachName = name,
-                        positionIndex = (index + 1).toString()
+        return buildList {
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val startDate = obj.optString("startDate")
+                if (startDate.isBlank()) continue
+                add(
+                    TrainInstance(
+                        startDate     = startDate,
+                        trainPosition = obj.optString("trainPosition"),
+                        trainStatus   = obj.optInt("trainStatus", 0),
+                        trainNo       = trainNo,
+                        trainName     = trainName,
+                        srcCode       = srcCode,
+                        srcName       = srcName,
+                        dstnCode      = dstnCode,
+                        dstnName      = dstnName,
+                        excpMsg       = obj.optString("excpMsg")
                     )
                 )
             }
         }
-
-        val divyangjanInfo = stn.optString("arrPWDCoachPosition").let { pwd ->
-            if (pwd.isNotBlank()) "Divyangjan Coach at #$pwd" else stn.optString("divyangjanInfo")
-        }
-
-        val stopStatus = when {
-            isd == true -> StopStatus.DEPARTED
-            isa == true -> StopStatus.AT_STATION
-            else -> resolveStopStatus(
-                isLive = isLive,
-                liveStatusText = liveStatusText,
-                actArr = actArr,
-                actDep = actDep,
-                isStop = isStop,
-                statusStr = liveStatusText
-            )
-        }
-
-        return StationStop(
-            stationCode = stationCode,
-            stationName = stationName,
-            scheduledArrival = schArr,
-            actualArrival = actArr,
-            arrivalDelay = arrDelay,
-            scheduledDeparture = schDep,
-            actualDeparture = actDep,
-            departureDelay = depDelay,
-            platform = platform,
-            distance = distance,
-            isStop = isStop,
-            delayMinutes = delayMins,
-            haltMinutes = haltMins,
-            dayCount = dayCount,
-            status = stopStatus,
-            isLiveLocation = isLive,
-            updatedOn = updatedOn,
-            liveStatusText = liveStatusText,
-            coachPositions = coachPositions,
-            divyangjanInfo = divyangjanInfo
-        )
-    }
-
-    private fun resolveStopStatus(
-        isLive: Boolean,
-        liveStatusText: String,
-        actArr: String,
-        actDep: String,
-        isStop: Boolean,
-        statusStr: String
-    ): StopStatus = when {
-        isLive && liveStatusText.contains("Departed", ignoreCase = true) -> StopStatus.DEPARTED
-        isLive -> StopStatus.AT_STATION
-        statusStr.contains("Departed", ignoreCase = true)  -> StopStatus.DEPARTED
-        statusStr.contains("Arrived", ignoreCase = true) ||
-            statusStr.contains("At Station", ignoreCase = true) -> StopStatus.AT_STATION
-        actDep.isNotBlank() -> StopStatus.DEPARTED
-        actArr.isNotBlank() -> StopStatus.AT_STATION
-        !isStop              -> StopStatus.SKIPPED
-        else                 -> StopStatus.UPCOMING
-    }
-
-    private fun parseTrainInstances(json: JSONObject): List<TrainInstance> {
-        val trainNo   = json.optString("TrainNo").ifBlank { "" }
-        val trainName = json.optString("TrainName").ifBlank { "" }
-        val srcCode   = json.optString("Src").ifBlank { "" }
-        val srcName   = json.optString("SrcName").ifBlank { "" }
-        val dstnCode  = json.optString("Dstn").ifBlank { "" }
-        val dstnName  = json.optString("DstnName").ifBlank { "" }
-
-        val arr: JSONArray = json.optJSONArray("vInstanceList")
-            ?: json.optJSONArray("trainInstances")
-            ?: json.optJSONArray("instances")
-            ?: return emptyList()
-
-        val instances = mutableListOf<TrainInstance>()
-        for (i in 0 until arr.length()) {
-            val obj       = arr.getJSONObject(i)
-            val startDate = obj.optString("startDate")
-            if (startDate.isBlank()) continue
-            instances.add(
-                TrainInstance(
-                    startDate     = startDate,
-                    trainPosition = obj.optString("trainPosition"),
-                    trainStatus   = obj.optInt("trainStatus", 0),
-                    trainNo       = trainNo,
-                    trainName     = trainName,
-                    srcCode       = srcCode,
-                    srcName       = srcName,
-                    dstnCode      = dstnCode,
-                    dstnName      = dstnName,
-                    excpMsg       = obj.optString("excpMsg")
-                )
-            )
-        }
-        return instances
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
