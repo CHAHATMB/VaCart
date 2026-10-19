@@ -3,6 +3,7 @@ package com.vacart.presentation.tracking
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.vacart.model.TrainInfo
+import com.vacart.model.TrainInstance
 import com.vacart.repository.Result
 import com.vacart.repository.TrainSearchManager
 import com.vacart.repository.TrainTrackingRepository
@@ -43,17 +44,8 @@ class TrainTrackingViewModel @Inject constructor(
             is TrainTrackingEvent.SelectTrainInfo -> {
                 selectTrainInfo(event.trainInfo)
             }
-            is TrainTrackingEvent.UpdateDate -> {
-                _state.value = _state.value.copy(dateInput = event.date, errorMessage = null)
-            }
-            is TrainTrackingEvent.UpdateDateOption -> {
-                _state.value = _state.value.copy(
-                    dateLabel = event.label,
-                    dateInput = event.formattedDate,
-                    errorMessage = null
-                )
-            }
-            is TrainTrackingEvent.Search -> fetchStatus()
+            is TrainTrackingEvent.FetchInstances -> fetchInstances()
+            is TrainTrackingEvent.SelectInstance -> fetchStatusForInstance(event.instance)
             is TrainTrackingEvent.Refresh -> refreshStatus()
             is TrainTrackingEvent.Reset -> {
                 _state.value = TrainTrackingState()
@@ -87,20 +79,52 @@ class TrainTrackingViewModel @Inject constructor(
         }
     }
 
-    private fun fetchStatus() {
-        val trainNo = if (_state.value.trainNoInput.contains(" - ")) {
-            _state.value.trainNoInput.split(" - ")[0].trim()
-        } else {
-            _state.value.trainNoInput.trim()
-        }
-        val date = _state.value.dateInput.trim()
-        if (trainNo.isBlank() || date.isBlank()) {
-            _state.value = _state.value.copy(errorMessage = "Please enter both train number and date.")
+    /**
+     * Step 1: User taps "Find Instances" → call GetTrainInstance API
+     * and transition to INSTANCE_LIST step on success.
+     */
+    private fun fetchInstances() {
+        val trainNo = resolveTrainNo()
+        if (trainNo.isBlank()) {
+            _state.value = _state.value.copy(errorMessage = "Please enter a train number.")
             return
         }
         viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, errorMessage = null)
-            when (val result = repository.fetchTrainRunningStatus(trainNo, date)) {
+            when (val result = repository.fetchTrainInstances(trainNo)) {
+                is Result.Success -> {
+                    if (result.data.isEmpty()) {
+                        _state.value = _state.value.copy(
+                            isLoading = false,
+                            errorMessage = "No active instances found for train $trainNo."
+                        )
+                    } else {
+                        _state.value = _state.value.copy(
+                            isLoading = false,
+                            trainInstances = result.data,
+                            step = TrackingStep.INSTANCE_LIST
+                        )
+                    }
+                }
+                is Result.Error -> {
+                    _state.value = _state.value.copy(
+                        isLoading = false,
+                        errorMessage = result.exception.message ?: "Something went wrong."
+                    )
+                }
+                else -> _state.value = _state.value.copy(isLoading = false)
+            }
+        }
+    }
+
+    /**
+     * Step 2: User selects an instance from the list → call ShowFullRunJson
+     * and transition to RESULT step on success.
+     */
+    private fun fetchStatusForInstance(instance: TrainInstance) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isLoading = true, errorMessage = null)
+            when (val result = repository.fetchTrainRunningStatus(instance.trainNo, instance.startDate)) {
                 is Result.Success -> {
                     _state.value = _state.value.copy(
                         isLoading = false,
@@ -120,12 +144,9 @@ class TrainTrackingViewModel @Inject constructor(
     }
 
     private fun refreshStatus() {
-        val trainNo = if (_state.value.trainNoInput.contains(" - ")) {
-            _state.value.trainNoInput.split(" - ")[0].trim()
-        } else {
-            _state.value.trainNoInput.trim()
-        }
-        val date = _state.value.dateInput.trim()
+        val status = _state.value.runningStatus ?: return
+        val trainNo = status.trainNumber ?: resolveTrainNo()
+        val date    = status.startDate   ?: return
         viewModelScope.launch {
             _state.value = _state.value.copy(isRefreshing = true, errorMessage = null)
             when (val result = repository.fetchTrainRunningStatus(trainNo, date)) {
@@ -144,5 +165,10 @@ class TrainTrackingViewModel @Inject constructor(
                 else -> _state.value = _state.value.copy(isRefreshing = false)
             }
         }
+    }
+
+    private fun resolveTrainNo(): String {
+        val raw = _state.value.trainNoInput
+        return if (raw.contains(" - ")) raw.split(" - ")[0].trim() else raw.trim()
     }
 }

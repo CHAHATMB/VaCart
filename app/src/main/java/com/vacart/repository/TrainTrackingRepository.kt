@@ -4,6 +4,7 @@ import android.util.Log
 import com.vacart.model.CoachPositionInfo
 import com.vacart.model.StationStop
 import com.vacart.model.StopStatus
+import com.vacart.model.TrainInstance
 import com.vacart.model.TrainRunningStatus
 import com.vacart.util.NtesCrypto
 import kotlinx.coroutines.Dispatchers
@@ -70,12 +71,12 @@ class TrainTrackingRepository @Inject constructor() {
 
     /**
      * Fetches active running instances for a train number via `GetTrainInstance`.
-     * Returns a list of (startDate, jStation) pairs that can be fed into
-     * [fetchTrainRunningStatus].
+     * Returns a list of [TrainInstance] objects that can be displayed to the user
+     * for selection, then fed into [fetchTrainRunningStatus].
      */
     suspend fun fetchTrainInstances(
         trainNo: String
-    ): Result<List<Pair<String, String>>> = withContext(Dispatchers.IO) {
+    ): Result<List<TrainInstance>> = withContext(Dispatchers.IO) {
         val query = buildQuery(
             "service" to "TrainRunningMob",
             "subService" to "GetTrainInstance",
@@ -465,16 +466,38 @@ class TrainTrackingRepository @Inject constructor() {
         else                 -> StopStatus.UPCOMING
     }
 
-    private fun parseTrainInstances(json: JSONObject): List<Pair<String, String>> {
-        val instances = mutableListOf<Pair<String, String>>()
-        val arr = json.optJSONArray("trainInstances")
+    private fun parseTrainInstances(json: JSONObject): List<TrainInstance> {
+        val trainNo   = json.optString("TrainNo").ifBlank { "" }
+        val trainName = json.optString("TrainName").ifBlank { "" }
+        val srcCode   = json.optString("Src").ifBlank { "" }
+        val srcName   = json.optString("SrcName").ifBlank { "" }
+        val dstnCode  = json.optString("Dstn").ifBlank { "" }
+        val dstnName  = json.optString("DstnName").ifBlank { "" }
+
+        val arr: JSONArray = json.optJSONArray("vInstanceList")
+            ?: json.optJSONArray("trainInstances")
             ?: json.optJSONArray("instances")
-            ?: return instances
+            ?: return emptyList()
+
+        val instances = mutableListOf<TrainInstance>()
         for (i in 0 until arr.length()) {
-            val obj = arr.getJSONObject(i)
-            val date = obj.optString("startDate").ifBlank { obj.optString("jDate") }
-            val stn  = obj.optString("jStation").ifBlank { obj.optString("station") }
-            if (date.isNotBlank()) instances.add(Pair(date, stn))
+            val obj       = arr.getJSONObject(i)
+            val startDate = obj.optString("startDate")
+            if (startDate.isBlank()) continue
+            instances.add(
+                TrainInstance(
+                    startDate     = startDate,
+                    trainPosition = obj.optString("trainPosition"),
+                    trainStatus   = obj.optInt("trainStatus", 0),
+                    trainNo       = trainNo,
+                    trainName     = trainName,
+                    srcCode       = srcCode,
+                    srcName       = srcName,
+                    dstnCode      = dstnCode,
+                    dstnName      = dstnName,
+                    excpMsg       = obj.optString("excpMsg")
+                )
+            )
         }
         return instances
     }

@@ -1,15 +1,14 @@
 package com.vacart.presentation.tracking
 
 import com.vacart.model.TrainInfo
+import com.vacart.model.TrainInstance
 import com.vacart.model.TrainRunningStatus
-import com.vacart.util.getFormattedDateForNtes
 
 data class TrainTrackingState(
     val trainNoInput: String = "",
     val selectedTrain: String = "",
     val filteredTrains: List<TrainInfo> = emptyList(),
-    val dateLabel: String = "Today",
-    val dateInput: String = getFormattedDateForNtes(0),
+    val trainInstances: List<TrainInstance> = emptyList(),
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val runningStatus: TrainRunningStatus? = null,
@@ -19,5 +18,6 @@ data class TrainTrackingState(
 
 enum class TrackingStep {
     INPUT,
+    INSTANCE_LIST,
     RESULT
 }

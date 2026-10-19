@@ -491,7 +491,8 @@ private fun PnrResultStep(
                         )
                     }
                     // Chart Status Badge
-                    val isChartPrepared = pnrResponse.chartStatus.contains("Prepared", ignoreCase = true)
+                    val isChartPrepared = pnrResponse.chartStatus.contains("CHART PREPARED", ignoreCase = true) &&
+                            !pnrResponse.chartStatus.contains("NOT", ignoreCase = true)
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = if (isChartPrepared) Color(0xFF2E7D32) else MaterialTheme.colorScheme.secondaryContainer

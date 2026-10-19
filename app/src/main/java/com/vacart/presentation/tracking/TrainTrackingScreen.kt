@@ -43,12 +43,12 @@ import androidx.compose.ui.unit.sp
 import com.vacart.model.StationStop
 import com.vacart.model.StopStatus
 import com.vacart.model.TrainInfo
+import com.vacart.model.TrainInstance
 import com.vacart.model.TrainRunningStatus
 import com.vacart.presentation.common.ClickableInputField
 import com.vacart.presentation.common.TrainSearchAutoCompleteField
 import com.vacart.presentation.common.TrainSearchBottomSheet
 import com.vacart.util.FeatureFlags
-import com.vacart.util.getFormattedDateForNtes
 import kotlinx.coroutines.launch
 
 // ─── Shared colours ────────────────────────────────────────────────────────────
@@ -135,10 +135,12 @@ fun TrainTrackingScreen(viewModel: TrainTrackingViewModel) {
                     state = state,
                     onTrainNoChange = { viewModel.onEvent(TrainTrackingEvent.UpdateTrainNo(it)) },
                     onSuggestionSelected = { viewModel.onEvent(TrainTrackingEvent.SelectTrainInfo(it)) },
-                    onDateOptionSelected = { label, dateStr ->
-                        viewModel.onEvent(TrainTrackingEvent.UpdateDateOption(label, dateStr))
-                    },
-                    onSearch = { viewModel.onEvent(TrainTrackingEvent.Search) }
+                    onSearch = { viewModel.onEvent(TrainTrackingEvent.FetchInstances) }
+                )
+                TrackingStep.INSTANCE_LIST -> TrainInstanceListStep(
+                    state = state,
+                    onInstanceSelected = { viewModel.onEvent(TrainTrackingEvent.SelectInstance(it)) },
+                    onTrackAnother = { viewModel.onEvent(TrainTrackingEvent.Reset) }
                 )
                 TrackingStep.RESULT -> {
                     val runningStatus = state.runningStatus ?: return@AnimatedContent
@@ -161,12 +163,9 @@ private fun TrainInputStep(
     state: TrainTrackingState,
     onTrainNoChange: (String) -> Unit,
     onSuggestionSelected: (TrainInfo) -> Unit,
-    onDateOptionSelected: (String, String) -> Unit,
     onSearch: () -> Unit
 ) {
     var showTrainBottomSheet by remember { mutableStateOf(false) }
-    var showDateBottomSheet by remember { mutableStateOf(false) }
-    val dateList = arrayOf("2 days ago", "Yesterday", "Today", "Tomorrow")
 
     Column(
         modifier = Modifier
@@ -195,7 +194,7 @@ private fun TrainInputStep(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Enter train number or name and select journey date",
+                    text = "Enter a train number or name to find active instances",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -249,29 +248,6 @@ private fun TrainInputStep(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                ClickableInputField(
-                    value = "${state.dateLabel} (${state.dateInput})",
-                    label = "Journey Date",
-                    placeholder = "Select journey date",
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.CalendarToday,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    trailingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.DateRange,
-                            contentDescription = "Select Date",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    },
-                    onClick = { showDateBottomSheet = true }
-                )
-
                 AnimatedVisibility(visible = state.errorMessage != null) {
                     Column {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -303,12 +279,12 @@ private fun TrainInputStep(
                             strokeWidth = 2.dp
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Fetching Live Status...")
+                        Text("Finding Instances...")
                     } else {
                         Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "Get Live Status",
+                            "Find Train Instances",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                     }
@@ -339,13 +315,14 @@ private fun TrainInputStep(
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = "Real-Time Tracking",
+                        text = "How it works",
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onTertiaryContainer
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Live running status is fetched directly from NTES (Indian Railways). Select journey date and search.",
+                        text = "Enter a train number to fetch all currently active journey instances from NTES. " +
+                                "Select the date you want to track and see the live running status.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer
                     )
@@ -366,112 +343,291 @@ private fun TrainInputStep(
             onDismiss = { showTrainBottomSheet = false }
         )
     }
-
-    if (showDateBottomSheet) {
-        TrackingDateBottomSheet(
-            state = state,
-            dateList = dateList,
-            onDateSelected = { index ->
-                val dateLabel = dateList[index]
-                val formattedDate = getFormattedDateForNtes(index - 2)
-                onDateOptionSelected(dateLabel, formattedDate)
-                showDateBottomSheet = false
-            },
-            onDismiss = { showDateBottomSheet = false }
-        )
-    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ─── Instance list step ────────────────────────────────────────────────────────
+
 @Composable
-private fun TrackingDateBottomSheet(
+private fun TrainInstanceListStep(
     state: TrainTrackingState,
-    dateList: Array<String>,
-    onDateSelected: (Int) -> Unit,
-    onDismiss: () -> Unit
+    onInstanceSelected: (TrainInstance) -> Unit,
+    onTrackAnother: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState()
+    val instances = state.trainInstances
+    val firstInstance = instances.firstOrNull()
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp)
-        ) {
-            Row(
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // ── Train info header ──────────────────────────────────────────────────
+        if (firstInstance != null) {
+            ElevatedCard(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.elevatedCardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                ),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 3.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.DateRange,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = "Select Journey Date",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            dateList.forEachIndexed { index, label ->
-                val formattedDate = getFormattedDateForNtes(index - 2)
-                val isSelected = state.dateLabel == label || state.dateInput == formattedDate
-
-                Card(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (isSelected)
-                            MaterialTheme.colorScheme.primaryContainer
-                        else
-                            MaterialTheme.colorScheme.surfaceContainer
-                    ),
-                    onClick = { onDateSelected(index) }
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(end = 12.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = label,
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                                )
-                            )
-                            Text(
-                                text = "Date: $formattedDate",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = "Selected",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
+                        Text(
+                            text = firstInstance.trainNo,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = firstInstance.trainName,
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "${firstInstance.srcName}  →  ${firstInstance.dstnName}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ── Section label ──────────────────────────────────────────────────────
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Select Journey Date",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Text(
+                    text = "${instances.size} instance${if (instances.size != 1) "s" else ""}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // ── Instance cards ─────────────────────────────────────────────────────
+        instances.forEach { instance ->
+            val statusColor = when (instance.trainStatus) {
+                0 -> MaterialTheme.colorScheme.outline         // Yet to start – neutral
+                1 -> GreenLive                                 // In transit – green
+                2 -> MaterialTheme.colorScheme.onSurfaceVariant // Completed – muted
+                else -> MaterialTheme.colorScheme.outline
+            }
+            val statusLabel = when (instance.trainStatus) {
+                0 -> "Yet to start"
+                1 -> "In transit"
+                2 -> "Completed"
+                else -> "Unknown"
+            }
+            val statusIcon = when (instance.trainStatus) {
+                0 -> Icons.Default.Schedule
+                1 -> Icons.Default.Train
+                2 -> Icons.Default.CheckCircle
+                else -> Icons.Default.Info
+            }
+            val isCompleted = instance.trainStatus == 2
+
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 5.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isCompleted)
+                        MaterialTheme.colorScheme.surfaceContainerLow
+                    else
+                        MaterialTheme.colorScheme.surfaceContainer
+                ),
+                onClick = { onInstanceSelected(instance) }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Status icon pill
+                    Surface(
+                        shape = CircleShape,
+                        color = statusColor.copy(alpha = 0.12f),
+                        modifier = Modifier.size(44.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = statusIcon,
+                                contentDescription = null,
+                                tint = statusColor,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        // Date row
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CalendarToday,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = instance.startDate,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Status badge
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = statusColor.copy(alpha = 0.12f)
+                        ) {
+                            Text(
+                                text = statusLabel,
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = statusColor
+                                ),
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        // Train position (only if available and not blank)
+                        if (instance.trainPosition.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = instance.trainPosition,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        // Exception message if any
+                        if (instance.excpMsg.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = instance.excpMsg,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Chevron
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = "Track this instance",
+                        tint = if (isCompleted)
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        else
+                            MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ── Error message ──────────────────────────────────────────────────────
+        AnimatedVisibility(visible = state.errorMessage != null) {
+            Text(
+                text = state.errorMessage ?: "",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp)
+            )
+        }
+
+        // Loading overlay (while fetching tracking data after selecting an instance)
+        AnimatedVisibility(visible = state.isLoading) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Fetching live status…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        OutlinedButton(
+            onClick = onTrackAnother,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(46.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Search Another Train")
         }
     }
 }
